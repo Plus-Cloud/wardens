@@ -1,21 +1,68 @@
-
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Wardens of the Forest</title>
-
+    
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+      /* Basic CSS to prevent the white screen while loading */
+      body { margin: 0; padding: 0; background: #050805; color: white; font-family: sans-serif; overflow: hidden; }
+      #root { width: 100vw; height: 100vh; }
+      .hud-glass { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+      /* Add any extra CSS from your index.css here */
+    </style>
   </head>
   <body>
     <div id="root"></div>
 
-    <script 
-      type="text/babel" 
-      data-presets="typescript,react" 
-      src="src/main.tsx">
+    <script type="text/babel" data-presets="typescript,react">
+      // --- PART 1: CONSTANTS ---
+      // Paste EVERYTHING from your src/game/constants.ts here:
+      const TILE_SIZE = 32; 
+      const GameState = { MENU: 'MENU', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
+      const BuildingType = { WOOD_WALL: 'WOOD_WALL', GUARD_TOWER: 'GUARD_TOWER' /* etc */ };
+      const BUILDINGS = { /* your building stats */ };
+
+      // --- PART 2: ENGINE ---
+      // Paste EVERYTHING from your src/game/engine.ts here:
+      class GameEngine {
+        constructor(canvas) { this.canvas = canvas; /* etc */ }
+        start() { /* start logic */ }
+        // ... rest of your engine code
+      }
+
+      // --- PART 3: THE APP COMPONENT (The code you just sent me) ---
+      // I've cleaned up the imports for you so they work in the browser
+      const { useState, useEffect, useRef } = React;
+      const { motion, AnimatePresence } = window.Motion; // Framer Motion for browser
+      
+      // We use Lucide icons via a helper since the import won't work
+      const Icon = ({ name, ...props }) => {
+        const LucideIcon = window.lucide[name];
+        return LucideIcon ? <LucideIcon {...props} /> : null;
+      };
+
+      function App() {
+        // --- PASTE THE REST OF YOUR APP FUNCTION CODE HERE ---
+        // (The massive block you just sent me, starting from the hooks)
+        
+        return (
+          <div className="relative w-full h-screen bg-[#050805]">
+             {/* Your JSX code... */}
+          </div>
+        );
+      }
+
+      // --- PART 4: LAUNCHER ---
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
     </script>
   </body>
 </html>
-
