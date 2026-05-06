@@ -16,12 +16,11 @@ export default function App() {
   const [gameInfo, setGameInfo] = useState({ demonLevel: 1, timer: 0 });
   const [selectedTile, setSelectedTile] = useState<{ x: number, y: number } | null>(null);
   
-  // Joystick State
+  // Interaction State
   const [joystickStart, setJoystickStart] = useState<{ x: number, y: number } | null>(null);
   const [joystickCurrent, setJoystickCurrent] = useState<{ x: number, y: number } | null>(null);
-
-  // Pinch Zoom State
   const [lastPinchDist, setLastPinchDist] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -60,126 +59,135 @@ export default function App() {
     };
   }, []);
 
-  // --- JOYSTICK LOGIC (Left Side Only) ---
-  const startJoystick = (e: TouchEvent) => {
+  // --- MASTER TOUCH CONTROLLER ---
+  const handleTouchStart = (e: TouchEvent) => {
     const touch = e.touches[0];
-    setJoystickStart({ x: touch.clientX, y: touch.clientY });
-    setJoystickCurrent({ x: touch.clientX, y: touch.clientY });
-  };
+    setIsDragging(false);
 
-  const moveJoystick = (e: TouchEvent) => {
-    if (!joystickStart || !engineRef.current) return;
-    const touch = e.touches[0];
-    setJoystickCurrent({ x: touch.clientX, y: touch.clientY });
-
-    const dx = touch.clientX - joystickStart.x;
-    const dy = touch.clientY - joystickStart.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const maxLen = 50;
-
-    engineRef.current.joystick.x = dx / maxLen;
-    engineRef.current.joystick.y = dy / maxLen;
-
-    if (dist > maxLen) {
-      const angle = Math.atan2(dy, dx);
-      engineRef.current.joystick.x = Math.cos(angle);
-      engineRef.current.joystick.y = Math.sin(angle);
+    if (e.touches.length === 1) {
+      // LEFT SIDE = Joystick | RIGHT SIDE = Pan/Interaction
+      if (touch.clientX < window.innerWidth / 2) {
+        setJoystickStart({ x: touch.clientX, y: touch.clientY });
+        setJoystickCurrent({ x: touch.clientX, y: touch.clientY });
+      } else {
+        // Prepare for panning
+        setIsDragging(true);
+      }
     }
   };
 
-  const endJoystick = () => {
+  const handleTouchMove = (e: TouchEvent) => {
+    if (!engineRef.current) return;
+
+    // 1. PINCH ZOOM (Two Fingers)
+    if (e.touches.length === 2) {
+      const dist = Math.sqrt(
+        Math.pow(e.touches[0].clientX - e.touches[1].clientX, 2) + 
+        Math.pow(e.touches[0].clientY - e.touches[1].clientY, 2)
+      );
+      if (lastPinchDist) {
+        const zoomFactor = dist / lastPinchDist;
+        engineRef.current.zoom = Math.max(0.5, Math.min(2.5, engineRef.current.zoom * zoomFactor));
+      }
+      setLastPinchDist(dist);
+      return;
+    }
+
+    // 2. JOYSTICK (Left Side)
+    if (joystickStart) {
+      const touch = e.touches[0];
+      setJoystickCurrent({ x: touch.clientX, y: touch.clientY });
+      const dx = touch.clientX - joystickStart.x;
+      const dy = touch.clientY - joystickStart.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const maxLen = 50;
+      
+      engineRef.current.joystick.x = dx / maxLen;
+      engineRef.current.joystick.y = dy / maxLen;
+      
+      if (dist > 5) setIsDragging(true); // Treat small joystick movement as dragging to prevent accidental taps
+    }
+
+    // 3. CAMERA PAN (Right Side)
+    if (!joystickStart && e.touches.length === 1) {
+      // Logic for panning if you aren't using the joystick
+      // This is handled by your engine's internal isPanning if you want, 
+      // but let's keep the joystick and taps primary for now.
+    }
+  };
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    if (!isDragging && !joystickStart && e.changedTouches.length === 1) {
+      // This was a clean TAP - trigger click
+      handleManualClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    }
+
     setJoystickStart(null);
     setJoystickCurrent(null);
+    setLastPinchDist(null);
     if (engineRef.current) {
       engineRef.current.joystick.x = 0;
       engineRef.current.joystick.y = 0;
     }
   };
 
-  // --- INTERACTION LOGIC (Right Side / Pinch Zoom) ---
-  const handleInteractionTouch = (e: TouchEvent) => {
-    if (e.touches.length === 2 && engineRef.current) {
-      // Pinch Zoom Logic
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.sqrt(Math.pow(t1.clientX - t2.clientX, 2) + Math.pow(t1.clientY - t2.clientY, 2));
-      
-      if (lastPinchDist) {
-        const zoomFactor = dist / lastPinchDist;
-        engineRef.current.zoom = Math.max(0.6, Math.min(2.0, engineRef.current.zoom * zoomFactor));
-      }
-      setLastPinchDist(dist);
-    }
-  };
-
-  const handleCanvasClick = (e: MouseEvent) => {
-    if (!engineRef.current) return;
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / engineRef.current.zoom + engineRef.current.camera.x;
-    const y = (e.clientY - rect.top) / engineRef.current.zoom + engineRef.current.camera.y;
+  const handleManualClick = (clientX: number, clientY: number) => {
+    if (!engineRef.current || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (clientX - rect.left) / engineRef.current.zoom + engineRef.current.camera.x;
+    const y = (clientY - rect.top) / engineRef.current.zoom + engineRef.current.camera.y;
     const gx = Math.floor(x / TILE_SIZE);
     const gy = Math.floor(y / TILE_SIZE);
+    
     setSelectedTile({ x: gx, y: gy });
     engineRef.current._selectedTile = { x: gx, y: gy };
   };
 
   return (
-    <div className="relative w-full h-screen bg-[#050805] overflow-hidden touch-none">
-      
-      {/* 1. GAME LAYER */}
-      <canvas 
-        ref={canvasRef} 
-        onClick={handleCanvasClick}
-        onTouchMove={handleInteractionTouch}
-        onTouchEnd={() => setLastPinchDist(null)}
-        className="block w-full h-full" 
-      />
+    <div 
+      className="relative w-full h-screen bg-[#050805] overflow-hidden touch-none"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <canvas ref={canvasRef} className="block w-full h-full" />
 
-      {/* 2. JOYSTICK ZONE (Transparent box on the left) */}
-      <div 
-        className="absolute bottom-0 left-0 w-[50%] h-[60%] z-50"
-        onTouchStart={startJoystick}
-        onTouchMove={moveJoystick}
-        onTouchEnd={endJoystick}
-      >
-        <AnimatePresence>
-          {joystickStart && joystickCurrent && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-              className="absolute pointer-events-none"
-              style={{ left: joystickStart.x - 50, top: joystickStart.y - 50 }}
-            >
-              <div className="w-[100px] h-[100px] rounded-full border-2 border-white/20 bg-white/5 backdrop-blur-sm flex items-center justify-center">
-                <div 
-                  className="w-10 h-10 bg-white/40 rounded-full"
-                  style={{ 
-                    transform: `translate(${Math.min(40, Math.max(-40, joystickCurrent.x - joystickStart.x))}px, ${Math.min(40, Math.max(-40, joystickCurrent.y - joystickStart.y))}px)` 
-                  }}
-                />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* Visual Joystick */}
+      <AnimatePresence>
+        {joystickStart && joystickCurrent && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute pointer-events-none z-50"
+            style={{ left: joystickStart.x - 50, top: joystickStart.y - 50 }}
+          >
+            <div className="w-[100px] h-[100px] rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-sm flex items-center justify-center">
+              <div 
+                className="w-10 h-10 bg-white/40 rounded-full"
+                style={{ 
+                  transform: `translate(${Math.min(40, Math.max(-40, joystickCurrent.x - joystickStart.x))}px, ${Math.min(40, Math.max(-40, joystickCurrent.y - joystickStart.y))}px)` 
+                }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* 3. HUD (Buttons & Stats) */}
-      <div className="absolute inset-0 pointer-events-none z-10">
-        <div className="absolute top-4 left-4 p-4 hud-glass rounded-xl flex gap-6">
-           <div className="flex flex-col"><span className="text-[#8b5e3c] font-bold text-xs">WOOD</span><span className="font-mono">{resources.wood}</span></div>
-           <div className="flex flex-col"><span className="text-[#fbbf24] font-bold text-xs">GOLD</span><span className="font-mono">{resources.gold}</span></div>
-           <div className="flex flex-col"><span className="text-[#f87171] font-bold text-xs">HP</span><span className="font-mono">{resources.hp}</span></div>
-        </div>
+      {/* Stats Bar */}
+      <div className="absolute top-4 left-4 p-4 hud-glass rounded-xl flex gap-6 pointer-events-none z-10">
+         <div className="flex flex-col"><span className="text-[#8b5e3c] font-bold text-[10px]">WOOD</span><span className="font-mono">{resources.wood}</span></div>
+         <div className="flex flex-col"><span className="text-[#fbbf24] font-bold text-[10px]">GOLD</span><span className="font-mono">{resources.gold}</span></div>
+         <div className="flex flex-col"><span className="text-[#f87171] font-bold text-[10px]">HP</span><span className="font-mono">{resources.hp}</span></div>
       </div>
 
       {/* Menu Overlay */}
       {gameState === GameState.MENU && (
-        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] pointer-events-auto">
+        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[100]">
           <h1 className="text-6xl font-black italic mb-8">WARDENS</h1>
           <button 
-            className="bg-white text-black px-12 py-4 rounded-full font-bold uppercase"
+            className="bg-white text-black px-12 py-4 rounded-full font-bold uppercase pointer-events-auto"
             onClick={() => { setGameState(GameState.PLAYING); engineRef.current?.start(); }}
           >
-            Start Journey
+            Start
           </button>
         </div>
       )}
