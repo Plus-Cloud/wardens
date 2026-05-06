@@ -8,61 +8,53 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
     <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-static@0.321.0/lib/lucide.min.js"></script>
 
     <style>
-      /* Basic CSS to prevent the white screen while loading */
       body { margin: 0; padding: 0; background: #050805; color: white; font-family: sans-serif; overflow: hidden; }
       #root { width: 100vw; height: 100vh; }
       .hud-glass { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-      /* Add any extra CSS from your index.css here */
+      /* The .text-wood, .text-gold etc classes from your App go here */
+      .text-wood { color: #8b5e3c; } .text-gold { color: #fbbf24; } .text-hp { color: #f87171; }
     </style>
   </head>
   <body>
     <div id="root"></div>
 
     <script type="text/babel" data-presets="typescript,react">
-      // --- PART 1: CONSTANTS ---
-      // Paste EVERYTHING from your src/game/constants.ts here:
-      const TILE_SIZE = 32; 
-      const GameState = { MENU: 'MENU', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
-      const BuildingType = { WOOD_WALL: 'WOOD_WALL', GUARD_TOWER: 'GUARD_TOWER' /* etc */ };
-      const BUILDINGS = { /* your building stats */ };
-
-      // --- PART 2: ENGINE ---
-      // Paste EVERYTHING from your src/game/engine.ts here:
-      class GameEngine {
-        constructor(canvas) { this.canvas = canvas; /* etc */ }
-        start() { /* start logic */ }
-        // ... rest of your engine code
-      }
-
-      // --- PART 3: THE APP COMPONENT (The code you just sent me) ---
-      // I've cleaned up the imports for you so they work in the browser
+      // 2. SETUP LIBRARIES (Since we can't use 'import')
       const { useState, useEffect, useRef } = React;
-      const { motion, AnimatePresence } = window.Motion; // Framer Motion for browser
-      
-      // We use Lucide icons via a helper since the import won't work
-      const Icon = ({ name, ...props }) => {
-        const LucideIcon = window.lucide[name];
-        return LucideIcon ? <LucideIcon {...props} /> : null;
+      const { motion, AnimatePresence } = window.Motion || { motion: (p) => <div {...p}/>, AnimatePresence: (p) => p.children };
+
+      // Helper for Lucide Icons
+      const LucideIcon = ({ name, className }) => {
+        return <i data-lucide={name} className={className}></i>;
       };
 
+      // 3. --- PASTE CONSTANTS & ENGINE CODE HERE ---
+      // (Copy from your src/game/constants.ts and src/game/engine.ts)
+
+      // 4. --- THE APP COMPONENT ---
       function App() {
-        // --- PASTE THE REST OF YOUR APP FUNCTION CODE HERE ---
-        // (The massive block you just sent me, starting from the hooks)
+        // PASTE YOUR APP CODE HERE (Starting from the hooks)
+        // IMPORTANT: Replace all icon tags like <Play /> with <LucideIcon name="play" />
         
         return (
-          <div className="relative w-full h-screen bg-[#050805]">
-             {/* Your JSX code... */}
+          <div className="relative w-full h-screen bg-[#050805] overflow-hidden">
+             <h1>Wardens of the Forest</h1>
+             <canvas id="game-canvas"></canvas>
           </div>
         );
       }
 
-      // --- PART 4: LAUNCHER ---
+      // 5. LAUNCH
       const root = ReactDOM.createRoot(document.getElementById('root'));
       root.render(<App />);
+      
+      // Initialize icons
+      setTimeout(() => { if(window.lucide) window.lucide.createIcons(); }, 500);
     </script>
   </body>
 </html>
