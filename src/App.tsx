@@ -13,7 +13,8 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<Category>('defense');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Touch State for Drag vs Tap
+  const [tick, setTick] = useState(0);
+
   const [touchStart, setTouchStart] = useState<{ x: number, y: number, time: number } | null>(null);
   const [joystickPos, setJoystickPos] = useState<{ x: number, y: number } | null>(null);
   const [lastPinchDist, setLastPinchDist] = useState<number | null>(null);
@@ -45,7 +46,12 @@ export default function App() {
       setErrorMsg(err.message || 'Engine failed to initialize on load.');
     }
 
-    return () => window.removeEventListener('resize', resize);
+    const interval = setInterval(() => setTick(t => t + 1), 100);
+
+    return () => {
+      window.removeEventListener('resize', resize);
+      clearInterval(interval);
+    };
   }, []);
 
   const startGame = () => {
@@ -57,7 +63,6 @@ export default function App() {
     }
   };
 
-  // --- TOUCH LOGIC ---
   const handleTouchStart = (e: TouchEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('.rts-panel')) return;
@@ -96,12 +101,10 @@ export default function App() {
 
       if (dist > 10) { 
         if (!engineRef.current.player.claimedBaseId) {
-          // Undocked: Joystick
           setJoystickPos({ x: touch.clientX, y: touch.clientY });
           engineRef.current.joystick.x = Math.max(-1, Math.min(1, dx / 50));
           engineRef.current.joystick.y = Math.max(-1, Math.min(1, dy / 50));
         } else {
-          // Docked: Pan Camera
           engineRef.current.camera.x -= dx / engineRef.current.zoom;
           engineRef.current.camera.y -= dy / engineRef.current.zoom;
           setTouchStart({ x: touch.clientX, y: touch.clientY, time: touchStart.time });
@@ -122,7 +125,6 @@ export default function App() {
       const duration = Date.now() - touchStart.time;
       const dist = Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y);
 
-      // TAP DETECTION: Only trigger if quick and little movement
       if (duration < 300 && dist < 15) {
         const rect = canvasRef.current!.getBoundingClientRect();
         const zoom = engineRef.current!.zoom || 1;
@@ -151,6 +153,24 @@ export default function App() {
     }
   };
 
+  const upgradeTo = (newType: BuildingType) => {
+    if (selectedTile && engineRef.current) {
+      const building = engineRef.current.getBuildingAt(selectedTile.x, selectedTile.y);
+      if (building) {
+        const stats = BUILDINGS[newType];
+        const player = engineRef.current.player;
+        if (player.wood >= stats.costWood && player.gold >= stats.costGold) {
+          player.wood -= stats.costWood;
+          player.gold -= stats.costGold;
+          building.evolve(newType);
+          if (engineRef.current.checkFKMilestones) {
+             engineRef.current.checkFKMilestones(player, building);
+          }
+        }
+      }
+    }
+  };
+
   const repair = () => {
     if (selectedTile && engineRef.current) {
       const b = engineRef.current.getBuildingAt(selectedTile.x, selectedTile.y);
@@ -169,6 +189,9 @@ export default function App() {
     }
   };
 
+  const selectedBuildingAtTile = selectedTile && engineRef.current ? engineRef.current.getBuildingAt(selectedTile.x, selectedTile.y) : null;
+  const selectedBuildingStats = selectedBuildingAtTile ? BUILDINGS[selectedBuildingAtTile.type as BuildingType] : null;
+
   return (
     <div
       className="w-full h-screen overflow-hidden bg-black text-white touch-none"
@@ -186,7 +209,6 @@ export default function App() {
         <canvas ref={canvasRef} className="w-full h-full block cursor-crosshair" />
       )}
 
-      {/* DYNAMIC VIRTUAL JOYSTICK */}
       <AnimatePresence>
         {touchStart && joystickPos && !engineRef.current?.player.claimedBaseId && (
           <motion.div 
@@ -217,44 +239,92 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* COMPACT SHOP UI */}
       <AnimatePresence>
         {selectedTile && gameState === GameState.PLAYING && (
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            className="absolute bottom-0 left-0 right-0 h-[220px] bg-black/95 border-t-4 border-[#3d2b1f] flex flex-col rts-panel z-40"
+            className="absolute bottom-0 left-0 right-0 h-[260px] bg-black/95 border-t-4 border-[#3d2b1f] flex flex-col rts-panel z-40"
           >
-            <div className="flex bg-[#1a140f] border-b border-[#3d2b1f] shrink-0">
-              {(Object.keys(categories) as Category[]).map((cat) => (
-                <button 
-                  key={cat} onClick={() => setActiveCategory(cat)} 
-                  className={`flex-1 py-3 text-[10px] uppercase font-black tracking-widest transition-colors ${activeCategory === cat ? 'bg-[#fbbf24] text-black' : 'text-[#8b5e3c] hover:bg-[#2a1f18]'}`}
-                >
-                  {cat}
-                </button>
-              ))}
+            <div className="flex bg-[#1a140f] border-b border-[#3d2b1f] shrink-0 items-center h-10">
+              {selectedBuildingAtTile ? (
+                <div className="flex-1 px-4 flex justify-between items-center text-[#fbbf24] font-black uppercase text-xs tracking-widest">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{selectedBuildingStats?.icon}</span>
+                    <span>{selectedBuildingStats?.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-red-400">
+                    <span>HP: {Math.floor(selectedBuildingAtTile.hp)} / {selectedBuildingAtTile.maxHp}</span>
+                  </div>
+                </div>
+              ) : (
+                (Object.keys(categories) as Category[]).map((cat) => (
+                  <button 
+                    key={cat} onClick={() => setActiveCategory(cat)} 
+                    className={`flex-1 h-full text-[10px] uppercase font-black tracking-widest transition-colors ${activeCategory === cat ? 'bg-[#fbbf24] text-black' : 'text-[#8b5e3c] hover:bg-[#2a1f18]'}`}
+                  >
+                    {cat}
+                  </button>
+                ))
+              )}
             </div>
 
             <div className="flex-1 flex p-2 gap-2 overflow-hidden">
-              <div className="flex-1 flex gap-2 overflow-x-auto items-center pb-2">
-                {categories[activeCategory].map((type) => {
-                  const stats = BUILDINGS[type];
-                  return (
-                    <button 
-                      key={type} onClick={() => build(type)} 
-                      className="w-24 h-24 bg-[#2a1f18] border-2 border-[#3d2b1f] flex flex-col items-center justify-center shrink-0 transition-colors hover:border-[#fbbf24]"
-                    >
-                      <div className="text-4xl mb-1">{stats.icon}</div>
-                      <div className="text-[10px] font-black text-[#fbbf24] uppercase text-center px-1 leading-tight">{stats.label}</div>
-                    </button>
-                  );
-                })}
+              <div className="flex-1 flex gap-2 overflow-x-auto items-stretch pb-1">
+                {selectedBuildingAtTile ? (
+                  selectedBuildingStats?.upgradesTo?.length ? (
+                    selectedBuildingStats.upgradesTo.map((nextType) => {
+                      const stats = BUILDINGS[nextType];
+                      const canAfford = engineRef.current!.player.wood >= stats.costWood && engineRef.current!.player.gold >= stats.costGold;
+                      return (
+                        <button 
+                          key={nextType} onClick={() => upgradeTo(nextType)} disabled={!canAfford}
+                          className="w-36 bg-[#2a1f18] border-2 border-[#3d2b1f] flex flex-col items-center justify-start shrink-0 transition-colors hover:border-[#fbbf24] disabled:opacity-30 p-2"
+                        >
+                          <div className="text-3xl mb-1">{stats.icon}</div>
+                          <div className="text-[10px] font-black text-[#fbbf24] uppercase text-center leading-tight mb-1 line-clamp-1">{stats.label}</div>
+                          <div className="flex gap-2 text-[10px] font-bold mb-2">
+                            <span className="text-[#8b5e3c]">W:{stats.costWood}</span>
+                            <span className="text-[#fbbf24]">G:{stats.costGold}</span>
+                          </div>
+                          <div className="text-[9px] text-gray-400 text-center leading-tight overflow-hidden line-clamp-3">
+                            {stats.description || 'Upgrades this structure.'}
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="w-full flex items-center justify-center text-[#8b5e3c] font-black uppercase tracking-widest text-sm opacity-50">
+                      Max Level Reached
+                    </div>
+                  )
+                ) : (
+                  categories[activeCategory].map((type) => {
+                    const stats = BUILDINGS[type];
+                    const canAfford = engineRef.current!.player.wood >= stats.costWood && engineRef.current!.player.gold >= stats.costGold;
+                    return (
+                      <button 
+                        key={type} onClick={() => build(type)} disabled={!canAfford}
+                        className="w-36 bg-[#2a1f18] border-2 border-[#3d2b1f] flex flex-col items-center justify-start shrink-0 transition-colors hover:border-[#fbbf24] disabled:opacity-30 p-2"
+                      >
+                        <div className="text-3xl mb-1">{stats.icon}</div>
+                        <div className="text-[10px] font-black text-[#fbbf24] uppercase text-center leading-tight mb-1 line-clamp-1">{stats.label}</div>
+                        <div className="flex gap-2 text-[10px] font-bold mb-2">
+                          <span className="text-[#8b5e3c]">W:{stats.costWood}</span>
+                          <span className="text-[#fbbf24]">G:{stats.costGold}</span>
+                        </div>
+                        <div className="text-[9px] text-gray-400 text-center leading-tight overflow-hidden line-clamp-3">
+                          {stats.description || 'A vital structure.'}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
               </div>
 
               <div className="w-[80px] flex flex-col gap-2 shrink-0">
                 <button onClick={() => { setSelectedTile(null); if(engineRef.current) engineRef.current._selectedTile = null; }} className="flex-1 bg-red-900/30 border border-red-900/50 text-red-500 font-black text-[10px] uppercase hover:bg-red-900 hover:text-red-100">Close</button>
-                <button onClick={repair} className="flex-1 bg-green-900/30 border border-green-900/50 text-green-500 font-black text-[10px] uppercase hover:bg-green-900 hover:text-green-100">Repair</button>
-                <button onClick={sell} className="flex-1 bg-purple-900/30 border border-purple-900/50 text-purple-500 font-black text-[10px] uppercase hover:bg-purple-900 hover:text-purple-100">Sell</button>
+                <button onClick={repair} disabled={!selectedBuildingAtTile} className="flex-1 bg-green-900/30 border border-green-900/50 text-green-500 font-black text-[10px] uppercase hover:bg-green-900 hover:text-green-100 disabled:opacity-20">Repair</button>
+                <button onClick={sell} disabled={!selectedBuildingAtTile} className="flex-1 bg-purple-900/30 border border-purple-900/50 text-purple-500 font-black text-[10px] uppercase hover:bg-purple-900 hover:text-purple-100 disabled:opacity-20">Sell</button>
               </div>
             </div>
           </motion.div>
