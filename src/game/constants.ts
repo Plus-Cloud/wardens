@@ -78,6 +78,8 @@ export enum BuildingType {
   ESSENCE_DISTILLER = 'ESSENCE_DISTILLER',
   ABYSSAL_SPIRE = 'ABYSSAL_SPIRE',
   SACRED_ALTAR = 'SACRED_ALTAR',
+  DEMON_ALTAR = 'DEMON_ALTAR',
+  RUBBLE = 'RUBBLE',
 }
 
 export interface BuildingStats {
@@ -105,48 +107,48 @@ export const BUILDINGS: Record<BuildingType, BuildingStats> = {
   // --- WALLS ---
   [BuildingType.WOOD_WALL]: { 
     label: 'Wood Wall', hp: 150, maxHp: 150, costWood: 5, costGold: 0, 
-    color: '#8B4513', shape: 'rectangle', upgradesTo: [BuildingType.WOOD_WALL_HARDENED],
+    color: '#8B4513', shape: 'trapezoid', upgradesTo: [BuildingType.WOOD_WALL_HARDENED],
     description: 'Basic wooden defense. Cheap and fast to build.', icon: '🪵'
   },
   [BuildingType.WOOD_WALL_HARDENED]: { 
     label: 'Hardened Wall', hp: 300, maxHp: 300, costWood: 15, costGold: 0, 
-    color: '#6F370E', shape: 'rectangle', upgradesTo: [BuildingType.STONE_WALL],
+    color: '#6F370E', shape: 'trapezoid', upgradesTo: [BuildingType.STONE_WALL],
     description: 'Treated wood with extra bracing.', icon: '🩹'
   },
   [BuildingType.STONE_WALL]: { 
     label: 'Stone Wall', hp: 800, maxHp: 800, costWood: 40, costGold: 4, 
-    color: '#707070', shape: 'rectangle', upgradesTo: [BuildingType.STONE_WALL_REINFORCED],
+    color: '#707070', shape: 'hexagon', upgradesTo: [BuildingType.STONE_WALL_REINFORCED],
     description: 'Solid masonry. Can withstand significant punishment.', icon: '🪨'
   },
   [BuildingType.STONE_WALL_REINFORCED]: { 
     label: 'Reinforced Stone', hp: 1800, maxHp: 1800, costWood: 80, costGold: 12, 
-    color: '#505050', shape: 'rectangle', upgradesTo: [BuildingType.IRON_WALL],
+    color: '#505050', shape: 'hexagon', upgradesTo: [BuildingType.IRON_WALL],
     description: 'Iron-banded stone blocks.', icon: '🧱'
   },
   [BuildingType.IRON_WALL]: { 
     label: 'Iron Wall', hp: 4000, maxHp: 4000, costWood: 150, costGold: 35, 
-    color: '#2F4F4F', shape: 'rectangle', upgradesTo: [BuildingType.STEEL_BASTION],
+    color: '#2F4F4F', shape: 'diamond', upgradesTo: [BuildingType.STEEL_BASTION],
     description: 'Industrial grade iron plates.', icon: '⛓️'
   },
   [BuildingType.STEEL_BASTION]: { 
     label: 'Steel Bastion', hp: 8500, maxHp: 8500, costWood: 300, costGold: 80, 
-    color: '#334155', shape: 'rectangle', upgradesTo: [BuildingType.TITANIUM_WALL],
+    color: '#334155', shape: 'diamond', upgradesTo: [BuildingType.TITANIUM_WALL],
     description: 'High-tensile steel defense.', icon: '🛡️'
   },
   [BuildingType.TITANIUM_WALL]: { 
     label: 'Titanium Wall', hp: 16000, maxHp: 16000, costWood: 600, costGold: 180, 
-    color: '#94a3b8', shape: 'rectangle', upgradesTo: [BuildingType.OBSIDIAN_BARRIER],
-    description: 'Lightweight but incredibly tough alloy. Highly durable.', icon: '🛸'
+    color: '#94a3b8', shape: 'octagon', upgradesTo: [BuildingType.OBSIDIAN_BARRIER],
+    description: 'Lightweight but incredibly tough alloy.', icon: '🛸'
   },
   [BuildingType.OBSIDIAN_BARRIER]: { 
     label: 'Obsidian Barrier', hp: 35000, maxHp: 35000, costWood: 1200, costGold: 450, 
-    color: '#0f172a', shape: 'rectangle', upgradesTo: [BuildingType.MYTHIC_BARRIER],
+    color: '#0f172a', shape: 'octagon', upgradesTo: [BuildingType.MYTHIC_BARRIER],
     description: 'Volcanic glass infused with base magic.', icon: '🌑'
   },
   [BuildingType.MYTHIC_BARRIER]: { 
     label: 'Mythic Barrier', hp: 85000, maxHp: 85000, costWood: 3000, costGold: 1200, 
-    color: '#4f46e5', shape: 'rectangle', glow: '#6366f1',
-    description: 'The ultimate arcane defense. Near indestructible power.', icon: '✨'
+    color: '#4f46e5', shape: 'star', glow: '#6366f1',
+    description: 'The ultimate arcane defense.', icon: '✨'
   },
   
   // --- TOWERS ---
@@ -175,21 +177,21 @@ export const BUILDINGS: Record<BuildingType, BuildingStats> = {
     label: 'Rapid Archer', hp: 800, maxHp: 800, costWood: 120, costGold: 30, 
     range: 9, damage: 28, cooldown: 350, 
     projectileSpeed: 15, projectileColor: '#fbbf24', projectileSize: 3,
-    color: '#f59e0b', shape: 'tower', glow: '#fbbf24', upgradesTo: [BuildingType.LONGBOW_TOWER],
+    color: '#f59e0b', shape: 'hexagon', glow: '#fbbf24', upgradesTo: [BuildingType.LONGBOW_TOWER],
     description: 'Fires projectiles at an extreme speed. High DPS.', icon: '⚡'
   },
   [BuildingType.LONGBOW_TOWER]: { 
     label: 'Longbow Tower', hp: 1200, maxHp: 1200, costWood: 250, costGold: 80, 
     range: 15, damage: 120, cooldown: 1200, 
     projectileSpeed: 18, projectileColor: '#f59e0b', projectileSize: 5,
-    color: '#d97706', shape: 'diamond', glow: '#f59e0b',
+    color: '#d97706', shape: 'star', glow: '#f59e0b',
     description: 'Extreme range and high single-target damage.', icon: '🎯'
   },
   [BuildingType.SNIPER_TOWER]: { 
     label: 'Sniper Tower', hp: 1000, maxHp: 1000, costWood: 280, costGold: 120, 
     range: 18, damage: 450, cooldown: 3500, 
     projectileSpeed: 25, projectileColor: '#94a3b8', projectileSize: 3,
-    color: '#475569', shape: 'tower', glow: '#94a3b8',
+    color: '#475569', shape: 'diamond', glow: '#94a3b8',
     description: 'Devastating shots from incredible distances.', icon: '🔭'
   },
 
@@ -235,14 +237,14 @@ export const BUILDINGS: Record<BuildingType, BuildingStats> = {
     label: 'Ice Spire', hp: 1000, maxHp: 1000, costWood: 250, costGold: 60, 
     range: 10, damage: 45, cooldown: 1600, 
     projectileSpeed: 11, projectileColor: '#0ea5e9', projectileSize: 7,
-    color: '#0ea5e9', shape: 'tower', upgradesTo: [BuildingType.FREEZE_CANNON],
+    color: '#0ea5e9', shape: 'hexagon', upgradesTo: [BuildingType.FREEZE_CANNON],
     description: 'Crystallizes foes, significantly reducing movement.', icon: '🧊'
   },
   [BuildingType.FREEZE_CANNON]: { 
     label: 'Freeze Cannon', hp: 1400, maxHp: 1400, costWood: 450, costGold: 150, 
     range: 11, damage: 85, cooldown: 2000, 
     projectileSpeed: 13, projectileColor: '#0284c7', projectileSize: 9,
-    color: '#0284c7', shape: 'octagon', upgradesTo: [BuildingType.BLIZZARD_TOWER],
+    color: '#0284c7', shape: 'diamond', upgradesTo: [BuildingType.BLIZZARD_TOWER],
     description: 'Fires concentrated beams of absolute zero. Freezes targets.', icon: '☃️'
   },
   [BuildingType.BLIZZARD_TOWER]: { 
@@ -265,7 +267,7 @@ export const BUILDINGS: Record<BuildingType, BuildingStats> = {
     label: 'Blaze Tower', hp: 1100, maxHp: 1100, costWood: 260, costGold: 80, 
     range: 7.5, damage: 140, cooldown: 900, 
     projectileSpeed: 13, projectileColor: '#dc2626', projectileSize: 8,
-    color: '#dc2626', shape: 'star', upgradesTo: [BuildingType.INFERNO_SPIRE],
+    color: '#dc2626', shape: 'hexagon', upgradesTo: [BuildingType.INFERNO_SPIRE],
     description: 'Fires bolts of pure magma. High damage.', icon: '☄️'
   },
   [BuildingType.INFERNO_SPIRE]: { 
@@ -317,7 +319,7 @@ export const BUILDINGS: Record<BuildingType, BuildingStats> = {
     description: 'Automated repair station for nearby structures.', icon: '⚙️'
   },
   [BuildingType.LUMBER_SHACK]: {
-    label: 'Wood Shack', hp: 800, maxHp: 800, costWood: 0, costGold: 0,
+    label: 'Wood Shack', hp: 800, maxHp: 800, costWood: 50, costGold: 0,
     color: '#A0522D', shape: 'rectangle', upgradesTo: [BuildingType.LUMBER_MILL],
     description: 'Generates +1.5 wood/sec.', icon: '🛖'
   },
@@ -356,41 +358,51 @@ export const BUILDINGS: Record<BuildingType, BuildingStats> = {
   [BuildingType.SOULGUARD_TOWER]: {
     label: 'Soulguard Spire', hp: 30000, maxHp: 30000, costWood: 1500, costGold: 600, fkCost: 2,
     color: '#10b981', shape: 'tower', glow: '#34d399',
-    description: 'Elite defense. Absorbs 50% damage for nearby buildings. Requires 2 FK.', icon: '🛡️'
+    description: 'Elite defense. Absorbs 50% damage for nearby buildings.', icon: '🛡️'
   },
   [BuildingType.SIEGE_CANNON]: {
     label: 'Siege Cannon', hp: 10000, maxHp: 10000, costWood: 3000, costGold: 1200, fkCost: 3,
     range: 25, damage: 1500, cooldown: 6000,
     projectileSpeed: 30, projectileColor: '#f43f5e', projectileSize: 6,
     color: '#334155', shape: 'octagon', glow: '#f43f5e',
-    description: 'Slow firing, but destroys almost anything. Requires 3 FK.', icon: '🔭'
+    description: 'Slow firing, but destroys almost anything.', icon: '🔭'
   },
   [BuildingType.SUPPLY_NODE]: {
     label: 'Supply Node', hp: 6000, maxHp: 6000, costWood: 1000, costGold: 500, fkCost: 1,
     color: '#f59e0b', shape: 'diamond', glow: '#fbbf24',
-    description: 'Enhances worker efficiency across your base. Requires 1 FK.', icon: '⚡'
+    description: 'Enhances worker efficiency.', icon: '⚡'
   },
   [BuildingType.VOID_COLLECTOR]: {
     label: 'Void Collector', hp: 8000, maxHp: 8000, costWood: 2000, costGold: 800, fkCost: 1,
     color: '#4c1d95', shape: 'octagon', glow: '#8b5cf6',
-    description: 'Taps into the void to extract massive amounts of wood (+40/sec). Requires 1 FK.', icon: '🌪️'
+    description: 'Taps into the void to extract massive amounts of wood (+40/sec).', icon: '🌪️'
   },
   [BuildingType.ESSENCE_DISTILLER]: {
     label: 'Essence Distiller', hp: 12000, maxHp: 12000, costWood: 5000, costGold: 2000, fkCost: 2,
     color: '#1e1b4b', shape: 'diamond', glow: '#6366f1',
-    description: 'Refines raw essence into wood (+25/sec) and gold (+5/sec). Requires 2 FK.', icon: '🧪'
+    description: 'Refines raw essence into wood and gold.', icon: '🧪'
   },
   [BuildingType.ABYSSAL_SPIRE]: {
     label: 'Abyssal Spire', hp: 15000, maxHp: 15000, costWood: 3500, costGold: 1500, fkCost: 2,
     range: 16, damage: 1200, cooldown: 1800,
     projectileSpeed: 20, projectileColor: '#ec4899', projectileSize: 8,
     color: '#020617', shape: 'tower', glow: '#ec4899',
-    description: 'Fires bolts of pure entropy. Massive single-target damage. Requires 2 FK.', icon: '👁️'
+    description: 'Fires bolts of pure entropy. Massive damage.', icon: '👁️'
   },
   [BuildingType.SACRED_ALTAR]: {
     label: 'Sacred Altar', hp: 5000, maxHp: 5000, costWood: 0, costGold: 0,
     color: '#8b5cf6', shape: 'octagon', glow: '#c084fc',
     description: 'The heart of your domain. Generates +1.0 wood/sec. If destroyed, you perish.', icon: '🏛️'
+  },
+  [BuildingType.DEMON_ALTAR]: {
+    label: 'Demon Altar', hp: 25000, maxHp: 25000, costWood: 0, costGold: 0,
+    color: '#ef4444', shape: 'star', glow: '#dc2626',
+    description: 'The corruption source.', icon: '👹'
+  },
+  [BuildingType.RUBBLE]: { 
+    label: 'Rubble', hp: 100, maxHp: 100, costWood: 0, costGold: 0, 
+    color: '#4b5563', shape: 'trapezoid', 
+    description: 'Destroyed remains of a tower.', icon: '🏚️'
   },
 };
 

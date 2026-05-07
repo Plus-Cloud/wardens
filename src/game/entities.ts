@@ -23,10 +23,11 @@ export abstract class Entity {
       this.hp = 0;
       this.isDead = true;
     }
+    return amount;
   }
 }
 
-export type AIStrategy = 'Balanced' | 'Greedy' | 'Fortress' | 'Swarm' | 'Elite';
+export type AIStrategy = 'Balanced' | 'Greedy' | 'Fortress' | 'Swarm' | 'Elite' | 'Archer' | 'Frost' | 'Fire' | 'Tall' | 'Wide';
 
 export class Warden extends Entity {
   wood: number = 50; // Starting wood: 50
@@ -41,6 +42,7 @@ export class Warden extends Entity {
   fkMilestonesReached: Set<number> = new Set();
   strategy: AIStrategy = 'Balanced';
   upgrades: { offense: number, agility: number, defense: number, economy: number } = { offense: 0, agility: 0, defense: 0, economy: 0 };
+  aiTargets: { towers: number, walls: number, lumber: number, mines: number } = { towers: 5, walls: 2, lumber: 2, mines: 1 };
   unlockedBuildings: Set<BuildingType> = new Set([
     BuildingType.WOOD_WALL, 
     BuildingType.GUARD_TOWER, 
@@ -68,7 +70,7 @@ export class Building extends Entity {
   accumulatedGold: number = 0;
   textTimer: number = 0;
 
-  constructor(gx: number, gy: number, public type: BuildingType, public owner: Warden) {
+  constructor(gx: number, gy: number, public type: BuildingType, public owner: Warden | null = null) {
     super(gx * TILE_SIZE + TILE_SIZE / 2, gy * TILE_SIZE + TILE_SIZE / 2);
     const stats = BUILDINGS[type];
     this.upgrades = { defense: 0, offense: 0, economy: 0 };
@@ -106,6 +108,8 @@ export class Demon extends Entity {
   currentTarget: Entity | null = null;
   targetLockedTime: number = 0;
   lastTargetId: string | null = null;
+  lastTargetBaseId: string | null = null;
+  killCount: number = 0;
   corruptionTrail: Vector2[] = [];
   lastStuckPos: Vector2 = new Vector2(0, 0);
   stuckDuration: number = 0;
@@ -113,9 +117,11 @@ export class Demon extends Entity {
 
   constructor(x: number, y: number) {
     super(x, y);
-    this.radius = 16;
-    this.hp = 2500;
-    this.maxHp = 2500;
+    this.radius = 18; // Match Warden size
+    this.hp = 6000;
+    this.maxHp = 6000;
+    this.damage = 150;
+    this.attackSpeed = 1.25;
   }
 }
 
@@ -127,7 +133,7 @@ export class LesserDemon extends Entity {
 
   constructor(x: number, y: number) {
     super(x, y);
-    this.radius = 15;
+    this.radius = 8;
     this.hp = 120;
     this.maxHp = 120;
   }
@@ -135,28 +141,39 @@ export class LesserDemon extends Entity {
 
 export class Projectile {
   pos: Vector2;
+  velocity: Vector2;
+  distanceTraveled: number = 0;
+  maxRange: number = 300;
   speed: number = 10;
   isBomb: boolean = false;
   color: string = '#fbbf24';
   size: number = 6;
   
-  constructor(x: number, y: number, public target: Entity, public damage: number, isBomb: boolean = false, color: string = '#fbbf24', speed: number = 10, size: number = 6) {
+  constructor(x: number, y: number, public target: Entity, public damage: number, isBomb: boolean = false, color: string = '#fbbf24', speed: number = 10, size: number = 6, range: number = 300) {
     this.pos = new Vector2(x, y);
     this.isBomb = isBomb;
     this.color = color;
     this.speed = speed;
     this.size = size;
+    this.maxRange = range;
+    
+    // Initial velocity towards target (non-homing)
+    const dir = new Vector2(target.pos.x - x, target.pos.y - y).normalize();
+    this.velocity = dir;
   }
 
-  update() {
-    const dir = new Vector2(this.target.pos.x - this.pos.x, this.target.pos.y - this.pos.y);
-    const dist = dir.length();
+  update(dt: number) {
+    const step = this.speed * (dt * 60);
+    this.pos.x += this.velocity.x * step;
+    this.pos.y += this.velocity.y * step;
+    this.distanceTraveled += step;
     
-    if (dist < 10) return true;
+    // Check if we hit the target area (check distance to target pos considering radius)
+    const distTarget = this.pos.distanceTo(this.target.pos);
+    if (distTarget < (this.target.radius + this.size)) return 'hit';
     
-    dir.normalize();
-    this.pos.x += dir.x * this.speed;
-    this.pos.y += dir.y * this.speed;
-    return false;
+    if (this.distanceTraveled >= this.maxRange) return 'faded';
+    
+    return 'moving';
   }
 }

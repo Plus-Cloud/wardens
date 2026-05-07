@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { GameEngine } from './game/engine';
 import { GameState, BuildingType, BUILDINGS, TILE_SIZE, BASES } from './game/constants';
+import { Vector2 } from './game/utils';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -38,7 +39,9 @@ export default function App() {
 
   // Mobile Interaction State
   const [lastTouches, setLastTouches] = useState<{ x: number, y: number, id: number }[]>([]);
+  const [touchDistMoved, setTouchDistMoved] = useState(0);
   const [lastPinchDist, setLastPinchDist] = useState<number | null>(null);
+  const [joystickOrigin, setJoystickOrigin] = useState<{ x: number, y: number } | null>(null);
 
   useEffect(() => {
     if (hasClaimedBase) {
@@ -113,21 +116,25 @@ export default function App() {
           isLumbering: engineRef.current.player.isLumbering,
           forbiddenKnowledge: engineRef.current.player.forbiddenKnowledge
         });
-        if (engineRef.current.player.claimedBaseId && engineRef.current.player.claimedBaseId !== lastClaimedId.current) {
-          setHasClaimedBase(true);
-          lastClaimedId.current = engineRef.current.player.claimedBaseId;
-        }
+          if (engineRef.current.player.claimedBaseId && engineRef.current.player.claimedBaseId !== lastClaimedId.current) {
+            setHasClaimedBase(true);
+            lastClaimedId.current = engineRef.current.player.claimedBaseId;
+            // Set modalClosedTime to prevent immediate selection when teleported
+            modalClosedTime.current = performance.now();
+            if (engineRef.current) engineRef.current.lastClaimTime = performance.now();
+          }
         setGameInfo({
           demonLevel: engineRef.current.demon?.level || 1,
           timer: Math.floor(engineRef.current.timer),
         });
 
-        // Check if player in view
+        // Check if player in view (with 50px tolerance)
         const p = engineRef.current.player.pos;
         const c = engineRef.current.camera;
+        const pad = 50;
         const w = window.innerWidth / engineRef.current.zoom;
         const h = window.innerHeight / engineRef.current.zoom;
-        const inView = p.x >= c.x && p.x <= c.x + w && p.y >= c.y && p.y <= c.y + h;
+        const inView = p.x >= c.x - pad && p.x <= c.x + w + pad && p.y >= c.y - pad && p.y <= c.y + h + pad;
         setIsPlayerInView(inView);
         setPanningActive(engineRef.current.panningActive);
 
@@ -136,10 +143,10 @@ export default function App() {
           engineRef.current.gameState = GameState.GAMEOVER;
         }
 
-        // Camera follow logic in UI loop: reset panning if moving
-        if (engineRef.current.keys.size > 0 || engineRef.current.joystick.length() > 0.1) {
-           engineRef.current.panningActive = false;
-        }
+        // Camera follow logic in UI loop: ONLY reset if explicitly requested or outside base
+        // if (engineRef.current.keys.size > 0 || engineRef.current.joystick.length() > 0.1) {
+        //    engineRef.current.panningActive = false;
+        // }
       }
     }, 100);
 
@@ -160,8 +167,17 @@ export default function App() {
     engineRef.current?.start();
   };
 
+  const lastTouchTime = useRef(0);
+  const modalClosedTime = useRef(0);
   const handleCanvasClick = (e: MouseEvent) => {
     if (!engineRef.current) return;
+    const now = performance.now();
+    if (now - lastTouchTime.current < 400) return;
+    if (now - modalClosedTime.current < 500) return;
+    
+    // Prevent shop opening for 1s after claiming base
+    if (engineRef.current.lastClaimTime && now - engineRef.current.lastClaimTime < 1000) return;
+
     const rect = canvasRef.current!.getBoundingClientRect();
     const zoom = engineRef.current.zoom;
     const x = (e.clientX - rect.left) / zoom + engineRef.current.camera.x;
@@ -216,7 +232,15 @@ export default function App() {
     if (e.touches.length === 1) {
       const touch = e.touches[0];
       setLastTouches([{ x: touch.clientX, y: touch.clientY, id: touch.identifier }]);
+      setTouchDistMoved(0);
       setLastPinchDist(null);
+
+      // JOYSTICK ANYWHERE: If no base claimed, this is the joystick anchor
+      if (engineRef.current && !engineRef.current.player.claimedBaseId) {
+        setJoystickOrigin({ x: touch.clientX, y: touch.clientY });
+      } else {
+        setJoystickOrigin(null);
+      }
     } else if (e.touches.length === 2) {
       const t1 = e.touches[0];
       const t2 = e.touches[1];
@@ -236,15 +260,36 @@ export default function App() {
       const touch = e.touches[0];
       const last = lastTouches[0];
       
-      // Pan camera
-      const dx = (touch.clientX - last.x) / engineRef.current.zoom;
-      const dy = (touch.clientY - last.y) / engineRef.current.zoom;
+      const distMovement = Math.sqrt(Math.pow(touch.clientX - last.x, 2) + Math.pow(touch.clientY - last.y, 2));
+      setTouchDistMoved(prev => prev + distMovement);
       
-      engineRef.current.camera.x -= dx;
-      engineRef.current.camera.y -= dy;
-      engineRef.current.panningActive = true;
-      
-      setLastTouches([{ x: touch.clientX, y: touch.clientY, id: touch.identifier }]);
+      // JOYSTICK LOGIC: If we have an origin and no base, move the player
+      if (joystickOrigin && engineRef.current && !engineRef.current.player.claimedBaseId) {
+         const dx = touch.clientX - joystickOrigin.x;
+         const dy = touch.clientY - joystickOrigin.y;
+         const dist = Math.sqrt(dx*dx + dy*dy);
+         const maxRadius = 60;
+         
+         if (dist > 10) {
+            const pull = Math.min(dist, maxRadius) / maxRadius;
+            engineRef.current.joystick.x = (dx / dist) * pull;
+            engineRef.current.joystick.y = (dy / dist) * pull;
+            engineRef.current.panningActive = true; 
+         } else {
+            engineRef.current.joystick.x = 0;
+            engineRef.current.joystick.y = 0;
+         }
+      } else if (distMovement > 5 || engineRef.current?.panningActive) {
+        // Pan camera only if moved enough to distinguish from a tap
+        const dx = (touch.clientX - last.x) / engineRef.current!.zoom;
+        const dy = (touch.clientY - last.y) / engineRef.current!.zoom;
+        
+        engineRef.current!.camera.x -= dx;
+        engineRef.current!.camera.y -= dy;
+        engineRef.current!.panningActive = true;
+        
+        setLastTouches([{ x: touch.clientX, y: touch.clientY, id: touch.identifier }]);
+      }
     } else if (e.touches.length === 2 && lastPinchDist !== null) {
       const t1 = e.touches[0];
       const t2 = e.touches[1];
@@ -264,9 +309,16 @@ export default function App() {
   };
 
   const handleTouchEnd = (e: TouchEvent) => {
+    lastTouchTime.current = performance.now();
+    if (engineRef.current) {
+       engineRef.current.joystick.x = 0;
+       engineRef.current.joystick.y = 0;
+    }
+    setJoystickOrigin(null);
+
     if (e.touches.length === 0) {
-      // Logic for selection on quick tap
-      if (lastTouches.length === 1 && !engineRef.current?.panningActive) {
+      // Logic for selection on quick tap - check total distance moved during this touch
+      if (lastTouches.length === 1 && touchDistMoved < 15) {
           const rect = canvasRef.current!.getBoundingClientRect();
           const zoom = engineRef.current?.zoom || 1;
           const touch = lastTouches[0];
@@ -286,6 +338,7 @@ export default function App() {
               if (baseId && !engine.player.claimedBaseId) {
                 engine.claimBase(engine.player, baseId);
               }
+              // Force local update
               setSelectedTile({ x: gx, y: gy });
               engine._selectedTile = { x: gx, y: gy };
 
@@ -302,7 +355,8 @@ export default function App() {
       }
       setLastTouches([]);
       setLastPinchDist(null);
-      if (engineRef.current) engineRef.current.panningActive = false; // Reset for next tap detection
+      // Removed automatic reset to allow persistent panning
+      // if (engineRef.current) engineRef.current.panningActive = false; 
     } else if (e.touches.length === 1) {
       const touch = e.touches[0];
       setLastTouches([{ x: touch.clientX, y: touch.clientY, id: touch.identifier }]);
@@ -533,68 +587,77 @@ export default function App() {
       {gameState === GameState.PLAYING && (
         <>
           {/* Top Info Bar */}
-          <div className="absolute top-0 left-0 right-0 p-3 sm:p-6 flex flex-col sm:flex-row justify-between items-start gap-4 pointer-events-none z-10">
-            <div className="flex flex-wrap gap-2 sm:gap-4 pointer-events-auto">
-              <div className="hud-glass rounded-xl p-2 sm:p-3 flex gap-3 sm:gap-6">
+          <div className="absolute top-0 left-0 right-0 p-2 sm:p-6 flex flex-row justify-between items-start gap-1 sm:gap-4 pointer-events-none z-10 scale-90 sm:scale-100 origin-top-left">
+            <div className="flex flex-row gap-1 sm:gap-4 pointer-events-auto">
+              <div className="hud-glass rounded-lg sm:rounded-xl p-1.5 sm:p-3 flex gap-2 sm:gap-6">
                 <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-bold">Wood</span>
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <Axe className="text-wood w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="text-sm sm:text-xl font-mono font-bold text-wood">{resources.wood}</span>
+                  <span className="text-[7px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-bold leading-none mb-0.5">Wood</span>
+                  <div className="flex items-center gap-0.5 sm:gap-2">
+                    <Axe className="text-wood w-2.5 h-2.5 sm:w-4 sm:h-4" />
+                    <span className="text-xs sm:text-xl font-mono font-bold text-wood">{resources.wood}</span>
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-bold">Gold</span>
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <Coins className="text-gold w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="text-sm sm:text-xl font-mono font-bold text-gold">{resources.gold}</span>
+                  <span className="text-[7px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-bold leading-none mb-0.5">Gold</span>
+                  <div className="flex items-center gap-0.5 sm:gap-2">
+                    <Coins className="text-gold w-2.5 h-2.5 sm:w-4 sm:h-4" />
+                    <span className="text-xs sm:text-xl font-mono font-bold text-gold">{resources.gold}</span>
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-bold">Health</span>
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <Heart className="text-hp w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="text-sm sm:text-xl font-mono font-bold text-hp">{resources.hp}</span>
+                  <span className="text-[7px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-bold leading-none mb-0.5">Health</span>
+                  <div className="flex items-center gap-0.5 sm:gap-2">
+                    <Heart className="text-hp w-2.5 h-2.5 sm:w-4 sm:h-4" />
+                    <span className="text-xs sm:text-xl font-mono font-bold text-hp">{resources.hp}</span>
                   </div>
                 </div>
               </div>
 
               {/* Forbidden Knowledge HUD Item */}
-              <div className="hud-glass rounded-xl px-3 sm:px-6 py-2 sm:py-3 flex items-center gap-2 sm:gap-4 group h-[44px] sm:h-auto">
-                <div className="w-6 h-6 sm:w-10 sm:h-10 bg-[#a855f7]/20 border border-[#a855f7]/50 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.2)]">
-                  <Zap className="w-4 h-4 sm:w-6 sm:h-6 text-[#a855f7] animate-pulse" />
+              <div className="hud-glass rounded-lg sm:rounded-xl px-2 sm:px-6 py-1.5 sm:py-3 flex items-center gap-1.5 sm:gap-4 group h-[34px] sm:h-auto">
+                <div className="w-5 h-5 sm:w-10 sm:h-10 bg-[#a855f7]/20 border border-[#a855f7]/50 rounded flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+                  <Zap className="w-3 h-3 sm:w-6 sm:h-6 text-[#a855f7] animate-pulse" />
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-[0.1em] text-[#a855f7]/70">Knowledge</span>
-                  <span className="text-sm sm:text-2xl font-mono font-bold tracking-tight text-[#a855f7]">
+                  <span className="text-[7px] sm:text-[10px] font-black uppercase tracking-[0.1em] text-[#a855f7]/70 leading-none mb-0.5">Knowledge</span>
+                  <span className="text-xs sm:text-2xl font-mono font-bold tracking-tight text-[#a855f7]">
                     {resources.forbiddenKnowledge}
                   </span>
                 </div>
               </div>
             </div>
 
-            {panningActive && !isPlayerInView && (
+            {!isPlayerInView && (
               <motion.button
                 initial={{ scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2 rounded-full flex items-center gap-2 pointer-events-auto backdrop-blur-sm"
+                className="bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2 sm:px-6 sm:py-3 rounded-full flex items-center gap-2 pointer-events-auto backdrop-blur-md shadow-[0_0_20px_rgba(0,0,0,0.5)] z-20"
                 onClick={(e) => {
                   e.stopPropagation();
-                  engineRef.current?.snapToPlayer();
+                  if (engineRef.current?.player.claimedBaseId) {
+                    const base = BASES.find(b => b.id === engineRef.current?.player.claimedBaseId);
+                    if (base) {
+                       engineRef.current.snapToPosition(base.centerX * TILE_SIZE + TILE_SIZE/2, base.centerY * TILE_SIZE + TILE_SIZE/2);
+                    } else {
+                       engineRef.current.snapToPlayer();
+                    }
+                  } else {
+                    engineRef.current?.snapToPlayer();
+                  }
                 }}
               >
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-white">Snap back</span>
+                <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-white">Focus Base</span>
               </motion.button>
             )}
 
-            <div className="pointer-events-auto flex flex-col items-end gap-2 fixed top-3 right-3 sm:relative sm:top-0 sm:right-0">
-               <div className="hud-glass rounded-xl px-4 sm:px-6 py-2 sm:py-3 text-right">
-                 <div className={`text-[8px] sm:text-[12px] font-bold uppercase tracking-[2px] mb-1 ${gameInfo.timer > 90 ? 'text-hp animate-pulse' : 'text-emerald-400'}`}>
-                   {gameInfo.timer <= 90 ? `Prep ends` : `Demon Lv.${gameInfo.demonLevel}`}
+            <div className="pointer-events-auto flex flex-col items-end gap-1 sm:gap-2 ml-auto origin-top-right">
+               <div className="hud-glass rounded-lg sm:rounded-xl px-2 sm:px-6 py-1 sm:py-3 text-right">
+                 <div className={`text-[7px] sm:text-[12px] font-bold uppercase tracking-[1px] sm:tracking-[2px] mb-0.5 sm:mb-1 ${gameInfo.timer > 30 ? 'text-hp animate-pulse' : 'text-emerald-400'}`}>
+                   {gameInfo.timer <= 30 ? `Prep` : `Lv.${gameInfo.demonLevel}`}
                  </div>
-                 <div className="text-lg sm:text-3xl font-mono font-bold tracking-tight">
-                   {gameInfo.timer <= 90 ? formatTime(90 - gameInfo.timer) : formatTime(gameInfo.timer)}
+                 <div className="text-sm sm:text-3xl font-mono font-bold tracking-tight">
+                   {gameInfo.timer <= 30 ? formatTime(30 - gameInfo.timer) : formatTime(gameInfo.timer)}
                  </div>
                </div>
             </div>
@@ -706,23 +769,29 @@ export default function App() {
                                           key={nextType}
                                           disabled={!canAfford || !unlocked}
                                           onClick={() => upgradeTo(nextType)}
-                                          className="group relative w-32 sm:w-48 h-full bg-gradient-to-b from-[#2a1f18] to-[#120a06] border-2 border-[#fbbf24]/30 p-2 sm:p-4 flex flex-col items-center justify-between shadow-2xl transition-all hover:border-[#fbbf24] disabled:opacity-30 shrink-0"
+                                          className="group relative w-24 sm:w-48 h-full bg-gradient-to-b from-[#2a1f18] to-[#120a06] border-2 border-[#fbbf24]/30 p-1 sm:p-4 flex flex-col items-center justify-between shadow-2xl transition-all hover:border-[#fbbf24] disabled:opacity-30 shrink-0"
                                         >
-                                          {!unlocked && <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-[8px] sm:text-[10px] font-black uppercase p-2 text-center text-rose-500"><Lock className="w-5 h-5 sm:w-8 sm:h-8 mb-1 sm:mb-2"/> Requires Science</div>}
-                                          <div className="absolute top-1 left-1 text-[6px] sm:text-[8px] font-black text-[#fbbf24] opacity-50 uppercase tracking-widest italic">Evolution</div>
-                                          <span className="text-3xl sm:text-6xl mt-1 sm:mt-2 group-hover:scale-110 transition-transform">{stats.icon}</span>
-                                          <div className="text-center w-full grow flex flex-col justify-center">
-                                            <div className="text-[8px] sm:text-xs font-black text-[#fbbf24] uppercase tracking-widest">{stats.label}</div>
-                                            <div className="text-[6px] sm:text-[8px] text-gray-500 uppercase font-bold mt-0.5 line-clamp-2">{stats.description}</div>
-                                            <div className="flex justify-center gap-2 sm:gap-4 mt-1 border-t border-[#3d2b1f] pt-1 sm:pt-2">
-                                              <div className="flex items-center gap-1 font-mono text-[8px] sm:text-[10px]">
-                                                <Axe className="w-2 h-2 sm:w-3 sm:h-3 text-emerald-500" />
+                                          {!unlocked && <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-[7px] sm:text-[10px] font-black uppercase p-1 text-center text-rose-500 overflow-hidden"><Lock className="w-4 h-4 sm:w-8 sm:h-8 mb-0.5 sm:mb-2"/> Needs Science</div>}
+                                          <div className="absolute top-0.5 left-1 text-[5px] sm:text-[8px] font-black text-[#fbbf24] opacity-50 uppercase tracking-widest italic">Evolve</div>
+                                          <span className="text-2xl sm:text-6xl mt-0.5 sm:mt-2 group-hover:scale-110 transition-transform">{stats.icon}</span>
+                                          <div className="text-center w-full grow flex flex-col justify-center px-0.5">
+                                            <div className="text-[7px] sm:text-xs font-black text-[#fbbf24] uppercase tracking-widest leading-none sm:mb-1">{stats.label}</div>
+                                            <div className="text-[5px] sm:text-[8px] text-gray-500 uppercase font-bold mt-0.5 line-clamp-1 sm:line-clamp-2">{stats.description}</div>
+                                            <div className="flex justify-center gap-1.5 sm:gap-4 mt-auto border-t border-[#3d2b1f] pt-0.5 sm:pt-2">
+                                              <div className="flex items-center gap-0.5 font-mono text-[7px] sm:text-[10px]">
+                                                <Axe className="w-1.5 h-1.5 sm:w-3 sm:h-3 text-emerald-500" />
                                                 {stats.costWood}
                                               </div>
-                                              <div className="flex items-center gap-1 font-mono text-[8px] sm:text-[10px]">
-                                                <Coins className="w-2 h-2 sm:w-3 sm:h-3 text-gold" />
+                                              <div className="flex items-center gap-0.5 font-mono text-[7px] sm:text-[10px]">
+                                                <Coins className="w-1.5 h-1.5 sm:w-3 sm:h-3 text-gold" />
                                                 {stats.costGold}
                                               </div>
+                                              {stats.fkCost ? (
+                                                <div className="flex items-center gap-0.5 font-mono text-[7px] sm:text-[10px] text-[#a855f7]">
+                                                  <Zap className="w-1.5 h-1.5 sm:w-3 sm:h-3" />
+                                                  {stats.fkCost}
+                                                </div>
+                                              ) : null}
                                             </div>
                                           </div>
                                         </motion.button>
@@ -753,35 +822,37 @@ export default function App() {
                                                resources.forbiddenKnowledge >= (stats.fkCost || 0);
 
                               return (
-                                <motion.div 
-                                  key={type}
-                                  whileHover={{ scale: canAfford ? 1.05 : 1 }}
-                                  whileTap={{ scale: canAfford ? 0.95 : 1 }}
-                                  onClick={() => canAfford && build(type)}
-                                  className={`group relative w-36 sm:w-56 shrink-0 h-full bg-gradient-to-b from-[#1e1b4b] to-[#020617] border-2 p-2 sm:p-4 flex flex-col items-center justify-between shadow-2xl cursor-pointer transition-all ${
-                                    canAfford ? 'border-[#a855f7]/50 shadow-[0_0_15px_rgba(168,85,247,0.1)]' : 'border-[#3d2b1f] opacity-40 grayscale pointer-events-none'
-                                  }`}
-                                >
-                                  <span className="text-3xl sm:text-5xl mt-1 sm:mt-2 drop-shadow-[0_0_15px_rgba(168,85,247,0.3)]">{stats.icon}</span>
-                                  <div className="text-center w-full">
-                                    <h4 className="text-[#a855f7] font-black text-[10px] sm:text-xs uppercase mb-1">{stats.label}</h4>
-                                    <p className="text-[6px] sm:text-[8px] text-indigo-300 font-bold uppercase tracking-tight mb-2 line-clamp-2">{stats.description}</p>
-                                    
-                                    <div className="flex flex-col gap-1 border-t border-white/10 pt-2">
-                                      <div className="flex justify-center gap-2 items-center">
-                                        <div className="flex items-center gap-1 text-[8px] sm:text-[9px] font-mono text-emerald-400">
-                                          <Axe className="w-2 h-2" />{stats.costWood}
-                                        </div>
-                                        <div className="flex items-center gap-1 text-[8px] sm:text-[9px] font-mono text-amber-400">
-                                          <Coins className="w-2 h-2" />{stats.costGold}
-                                        </div>
-                                        <div className="flex items-center gap-1 text-[8px] sm:text-[9px] font-mono text-[#a855f7] font-black">
-                                          <Zap className="w-2 h-2" />{stats.fkCost}
+                                  <motion.div 
+                                    key={type}
+                                    whileHover={{ scale: canAfford ? 1.05 : 1 }}
+                                    whileTap={{ scale: canAfford ? 0.95 : 1 }}
+                                    onClick={() => canAfford && build(type)}
+                                    className={`group relative w-24 sm:w-56 shrink-0 h-full bg-gradient-to-b from-[#1e1b4b] to-[#020617] border-2 p-1 sm:p-4 flex flex-col items-center justify-between shadow-2xl cursor-pointer transition-all ${
+                                      canAfford ? 'border-[#a855f7]/50 shadow-[0_0_15px_rgba(168,85,247,0.1)]' : 'border-[#3d2b1f] opacity-40 grayscale pointer-events-none'
+                                    }`}
+                                   >
+                                     <span className="text-2xl sm:text-5xl mt-0.5 drop-shadow-[0_0_15px_rgba(168,85,247,0.3)] group-hover:scale-110 transition-transform">{stats.icon}</span>
+                                    <div className="text-center w-full grow flex flex-col justify-center px-0.5">
+                                      <h4 className="text-[#a855f7] font-black text-[7px] sm:text-xs uppercase mb-0.5 leading-none">{stats.label}</h4>
+                                      <p className="text-[5px] sm:text-[8px] text-indigo-300 font-bold uppercase tracking-tight mb-0.5 line-clamp-1 sm:line-clamp-2">{stats.description}</p>
+                                      
+                                      <div className="flex flex-col gap-0.5 border-t border-white/10 pt-0.5 mt-auto">
+                                        <div className="flex justify-center gap-1 items-center">
+                                          <div className="flex items-center gap-0.5 text-[6px] sm:text-[9px] font-mono text-emerald-400">
+                                            <Axe className="w-1.5 h-1.5 sm:w-2 sm:h-2" />{stats.costWood}
+                                          </div>
+                                          <div className="flex items-center gap-0.5 text-[6px] sm:text-[9px] font-mono text-amber-400">
+                                            <Coins className="w-1.5 h-1.5 sm:w-2 sm:h-2" />{stats.costGold}
+                                          </div>
+                                          {stats.fkCost ? (
+                                            <div className="flex items-center gap-0.5 text-[6px] sm:text-[9px] font-mono text-[#a855f7]">
+                                              <Zap className="w-1.5 h-1.5 sm:w-2 sm:h-2" />{stats.fkCost}
+                                            </div>
+                                          ) : null}
                                         </div>
                                       </div>
                                     </div>
-                                  </div>
-                                </motion.div>
+                                  </motion.div>
                               )
                             })
                           ) : (
@@ -798,21 +869,21 @@ export default function App() {
                                     e.stopPropagation();
                                     build(type);
                                   }}
-                                  className="group relative w-32 sm:w-44 shrink-0 h-full bg-[#2a1f18] border-2 border-[#3d2b1f] p-2 sm:p-3 flex flex-col items-center justify-between transition-all hover:border-[#fbbf24] disabled:opacity-40 disabled:grayscale overflow-hidden"
+                                  className="group relative w-24 sm:w-44 shrink-0 h-full bg-[#2a1f18] border-2 border-[#3d2b1f] p-1 sm:p-3 flex flex-col items-center justify-between transition-all hover:border-[#fbbf24] disabled:opacity-40 disabled:grayscale overflow-hidden"
                                 >
-                                  <span className="text-3xl sm:text-5xl mt-1 sm:mt-2 group-hover:scale-110 transition-transform">{stats.icon}</span>
-                                  <div className="text-center w-full grow flex flex-col justify-center">
-                                    <h4 className="text-[#fbbf24] font-black text-[8px] sm:text-[10px] uppercase tracking-widest leading-none mb-1">{stats.label}</h4>
-                                    <p className="text-[6px] sm:text-[8px] text-gray-500 uppercase font-bold mb-1 line-clamp-2">{stats.description}</p>
-                                    <div className="flex justify-center gap-2 sm:gap-3 border-t border-[#3d2b1f] pt-1 sm:pt-1.5 mt-auto">
-                                      <div className="flex items-center gap-1">
-                                        <Axe className="w-2 h-2 sm:w-3 sm:h-3 text-emerald-500" />
-                                        <span className="text-[8px] sm:text-[10px] font-mono font-bold">{stats.costWood}</span>
+                                  <span className="text-2xl sm:text-5xl mt-0.5 group-hover:scale-110 transition-transform">{stats.icon}</span>
+                                  <div className="text-center w-full grow flex flex-col justify-center px-0.5">
+                                    <h4 className="text-[#fbbf24] font-black text-[7px] sm:text-[10px] uppercase tracking-widest leading-none mb-0.5">{stats.label}</h4>
+                                    <p className="text-[4px] sm:text-[8px] text-gray-500 uppercase font-bold mb-0.5 line-clamp-1 sm:line-clamp-2">{stats.description}</p>
+                                    <div className="flex justify-center gap-1 sm:gap-3 border-t border-[#3d2b1f] pt-0.5 mt-auto">
+                                      <div className="flex items-center gap-0.5">
+                                        <Axe className="w-1.5 h-1.5 sm:w-3 sm:h-3 text-emerald-500" />
+                                        <span className="text-[6px] sm:text-[10px] font-mono font-bold">{stats.costWood}</span>
                                       </div>
                                       {stats.costGold > 0 && (
-                                        <div className="flex items-center gap-1">
-                                          <Coins className="w-2 h-2 sm:w-3 sm:h-3 text-gold" />
-                                          <span className="text-[8px] sm:text-[10px] font-mono font-bold">{stats.costGold}</span>
+                                        <div className="flex items-center gap-0.5">
+                                          <Coins className="w-1.5 h-1.5 sm:w-3 sm:h-3 text-gold" />
+                                          <span className="text-[6px] sm:text-[10px] font-mono font-bold">{stats.costGold}</span>
                                         </div>
                                       )}
                                     </div>
@@ -828,7 +899,11 @@ export default function App() {
                     {/* RIGHT: Actions */}
                     <div className="w-full sm:w-[120px] flex flex-row sm:flex-col gap-1 sm:gap-2 shrink-0 h-[44px] sm:h-auto">
                       <button 
-                        onClick={() => setSelectedTile(null)}
+                        onClick={() => {
+                          setSelectedTile(null);
+                          if (engineRef.current) engineRef.current._selectedTile = null;
+                          modalClosedTime.current = performance.now();
+                        }}
                         className="flex-1 sm:h-12 bg-[#3d1f1f] border-2 sm:border-4 border-[#5a2e2e] text-[#f87171] font-black uppercase tracking-widest text-[8px] sm:text-[10px] hover:bg-rose-700 hover:text-white transition-all flex items-center justify-center"
                       >
                         CLOSE
@@ -866,7 +941,38 @@ export default function App() {
               className="absolute top-24 left-1/2 -translate-x-1/2 bg-green-500/20 backdrop-blur-md border border-green-500/50 px-6 py-2 rounded-full flex items-center gap-3 z-30 pointer-events-none"
             >
               <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              <span className="text-green-100 font-bold uppercase tracking-widest text-[10px]">Base Claimed: Wood Shack Active</span>
+              <span className="text-green-100 font-bold uppercase tracking-widest text-[10px]">Base Claimed: Altar Active</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Mobile Joystick Visual */}
+        <AnimatePresence>
+          {joystickOrigin && (
+            <motion.div
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              className="fixed z-50 pointer-events-none"
+              style={{
+                left: joystickOrigin.x,
+                top: joystickOrigin.y,
+                width: 100,
+                height: 100,
+                transform: 'translate(-50%, -50%)'
+              }}
+            >
+              <div className="w-full h-full rounded-full border-2 border-white/10 bg-white/5 backdrop-blur-[2px] flex items-center justify-center">
+                <div className="absolute w-1 h-full bg-white/5" />
+                <div className="absolute h-1 w-full bg-white/5" />
+                <motion.div
+                   animate={{
+                     x: (engineRef.current?.joystick.x || 0) * 35,
+                     y: (engineRef.current?.joystick.y || 0) * 35,
+                   }}
+                   className="w-10 h-10 rounded-full bg-white/20 border-2 border-white/40 shadow-xl"
+                />
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
