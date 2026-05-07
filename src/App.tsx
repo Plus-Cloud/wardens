@@ -13,6 +13,8 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<Category>('defense');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Restored Resources State
+  const [resources, setResources] = useState({ wood: 0, gold: 0, hp: 100, forbiddenKnowledge: 0 });
   const [tick, setTick] = useState(0);
 
   const [touchStart, setTouchStart] = useState<{ x: number, y: number, time: number } | null>(null);
@@ -46,7 +48,17 @@ export default function App() {
       setErrorMsg(err.message || 'Engine failed to initialize on load.');
     }
 
-    const interval = setInterval(() => setTick(t => t + 1), 100);
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+      if (engineRef.current) {
+        setResources({
+          wood: Math.floor(engineRef.current.player.wood),
+          gold: Math.floor(engineRef.current.player.gold),
+          hp: Math.floor(engineRef.current.player.hp),
+          forbiddenKnowledge: Math.floor(engineRef.current.player.forbiddenKnowledge || 0),
+        });
+      }
+    }, 100);
 
     return () => {
       window.removeEventListener('resize', resize);
@@ -65,7 +77,7 @@ export default function App() {
 
   const handleTouchStart = (e: TouchEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('.rts-panel')) return;
+    if (target.closest('button') || target.closest('.rts-panel') || target.closest('.hud')) return;
 
     if (e.touches.length === 1) {
       const touch = e.touches[0];
@@ -207,6 +219,16 @@ export default function App() {
         </div>
       ) : (
         <canvas ref={canvasRef} className="w-full h-full block cursor-crosshair" />
+      )}
+
+      {/* RESTORED HUD */}
+      {gameState === GameState.PLAYING && (
+        <div className="absolute top-4 left-4 p-3 bg-black/60 backdrop-blur-md border border-[#3d2b1f] rounded-xl flex gap-4 pointer-events-none z-10 hud">
+           <div className="flex flex-col items-center"><span className="text-[#8b5e3c] font-black text-[10px] uppercase">Wood</span><span className="font-mono font-bold">{resources.wood}</span></div>
+           <div className="flex flex-col items-center"><span className="text-[#fbbf24] font-black text-[10px] uppercase">Gold</span><span className="font-mono font-bold">{resources.gold}</span></div>
+           <div className="flex flex-col items-center"><span className="text-[#f87171] font-black text-[10px] uppercase">HP</span><span className="font-mono font-bold">{resources.hp}</span></div>
+           <div className="flex flex-col items-center"><span className="text-[#a855f7] font-black text-[10px] uppercase">Knowledge</span><span className="font-mono font-bold text-[#a855f7]">{resources.forbiddenKnowledge}</span></div>
+        </div>
       )}
 
       <AnimatePresence>
