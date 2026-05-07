@@ -102,7 +102,7 @@ export default function App() {
 
   return (
     <div
-      className="w-full h-screen overflow-hidden bg-black text-white"
+      className="w-full h-screen overflow-hidden bg-black text-white touch-none"
       onWheel={handleWheel}
       onTouchStart={handleTouchStart}
       style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -112,7 +112,7 @@ export default function App() {
           <p className="text-xl font-bold font-mono">CRITICAL ERROR: <br/> {errorMsg}</p>
         </div>
       ) : (
-        <canvas ref={canvasRef} className="w-full h-full block" />
+        <canvas ref={canvasRef} className="w-full h-full block cursor-crosshair" />
       )}
 
       <AnimatePresence>
@@ -129,36 +129,66 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* COMPACT SHOP UI */}
       <AnimatePresence>
         {selectedTile && gameState === GameState.PLAYING && (
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            className="absolute bottom-0 left-0 right-0 h-[60vh] sm:h-[400px] bg-black/95 border-t border-gray-800 p-2 flex flex-col rts-panel z-40"
+            className="absolute bottom-0 left-0 right-0 h-[220px] bg-black/95 border-t-4 border-[#3d2b1f] flex flex-col rts-panel z-40"
           >
-            <div className="flex gap-2 flex-wrap mb-2">
+            {/* Tabs */}
+            <div className="flex bg-[#1a140f] border-b border-[#3d2b1f] shrink-0">
               {(Object.keys(categories) as Category[]).map((cat) => (
-                <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1 rounded text-xs uppercase font-bold tracking-wider ${activeCategory === cat ? 'bg-[#fbbf24] text-black' : 'bg-gray-800'}`}>
+                <button 
+                  key={cat} 
+                  onClick={() => setActiveCategory(cat)} 
+                  className={`flex-1 py-3 text-[10px] uppercase font-black tracking-widest transition-colors ${activeCategory === cat ? 'bg-[#fbbf24] text-black' : 'text-[#8b5e3c] hover:bg-[#2a1f18]'}`}
+                >
                   {cat}
                 </button>
               ))}
             </div>
 
-            <div className="flex flex-wrap gap-2 flex-1 overflow-y-auto content-start">
-              {categories[activeCategory].map((type) => {
-                const stats = BUILDINGS[type];
-                return (
-                  <button key={type} onClick={() => build(type)} className="w-[48%] sm:w-[140px] bg-gray-900 p-3 rounded flex flex-col items-center border border-gray-800 hover:border-[#fbbf24]">
-                    <div className="text-3xl mb-1">{stats.icon}</div>
-                    <div className="text-[10px] font-bold uppercase text-center text-[#fbbf24]">{stats.label}</div>
-                  </button>
-                );
-              })}
-            </div>
+            {/* Shop Content */}
+            <div className="flex-1 flex p-2 gap-2 overflow-hidden">
+              {/* Horizontal Scroll Area for Buildings */}
+              <div className="flex-1 flex gap-2 overflow-x-auto items-center pb-2">
+                {categories[activeCategory].map((type) => {
+                  const stats = BUILDINGS[type];
+                  return (
+                    <button 
+                      key={type} 
+                      onClick={() => build(type)} 
+                      className="w-24 h-24 bg-[#2a1f18] border-2 border-[#3d2b1f] flex flex-col items-center justify-center shrink-0 transition-colors hover:border-[#fbbf24]"
+                    >
+                      <div className="text-4xl mb-1">{stats.icon}</div>
+                      <div className="text-[10px] font-black text-[#fbbf24] uppercase text-center px-1 leading-tight">{stats.label}</div>
+                    </button>
+                  );
+                })}
+              </div>
 
-            <div className="flex gap-2 mt-2">
-              <button onClick={() => { setSelectedTile(null); if(engineRef.current) engineRef.current._selectedTile = null; }} className="flex-1 bg-red-900/50 hover:bg-red-900 p-3 rounded font-black uppercase text-xs tracking-widest text-red-200">Close</button>
-              <button onClick={repair} className="flex-1 bg-green-900/50 hover:bg-green-900 p-3 rounded font-black uppercase text-xs tracking-widest text-green-200">Repair</button>
-              <button onClick={sell} className="flex-1 bg-purple-900/50 hover:bg-purple-900 p-3 rounded font-black uppercase text-xs tracking-widest text-purple-200">Sell</button>
+              {/* Action Buttons */}
+              <div className="w-[80px] flex flex-col gap-2 shrink-0">
+                <button 
+                  onClick={() => { setSelectedTile(null); if(engineRef.current) engineRef.current._selectedTile = null; }} 
+                  className="flex-1 bg-red-900/30 border border-red-900/50 text-red-500 font-black text-[10px] uppercase hover:bg-red-900 hover:text-red-100"
+                >
+                  Close
+                </button>
+                <button 
+                  onClick={repair} 
+                  className="flex-1 bg-green-900/30 border border-green-900/50 text-green-500 font-black text-[10px] uppercase hover:bg-green-900 hover:text-green-100"
+                >
+                  Repair
+                </button>
+                <button 
+                  onClick={sell} 
+                  className="flex-1 bg-purple-900/30 border border-purple-900/50 text-purple-500 font-black text-[10px] uppercase hover:bg-purple-900 hover:text-purple-100"
+                >
+                  Sell
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
