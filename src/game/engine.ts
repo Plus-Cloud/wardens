@@ -35,6 +35,14 @@ export class GameEngine {
   demonRespawnTimer: number = 0;
   demonScaleLevel: number = 1;
   demonTargetedWardens: string[] = []; // Track IDs of wardens attacked in current cycle
+  persistedDemonStats = {
+    level: 1,
+    maxHp: 600,
+    damage: 6,
+    speed: 5.5,
+    attackSpeed: 4.0,
+    nextLevelXp: 300
+  };
   lesserDemons: LesserDemon[] = [];
   baseMap: (string | null)[][] = [];
   
@@ -365,11 +373,15 @@ export class GameEngine {
       if (this.demonRespawnTimer <= 0) {
         const altar = this.buildings.find(b => b.type === BuildingType.DEMON_ALTAR);
         if (altar) {
+          const stats = this.persistedDemonStats;
           this.demon = new Demon(altar.pos.x, altar.pos.y);
-          const scale = this.demonScaleLevel - 1;
-          this.demon.maxHp += scale * 2500;
-          this.demon.hp = this.demon.maxHp;
-          this.demon.damage += scale * 50;
+          this.demon.level = stats.level;
+          this.demon.maxHp = stats.maxHp;
+          this.demon.hp = stats.maxHp;
+          this.demon.damage = stats.damage;
+          this.demon.speed = stats.speed;
+          this.demon.attackSpeed = stats.attackSpeed;
+          (this.demon as any).nextLevelXp = stats.nextLevelXp;
         }
       }
     }
@@ -582,16 +594,61 @@ export class GameEngine {
   damageAIWarden(w: Warden, damage: number) {
     const dmg = w.takeDamage(damage);
     this.spawnDamageText(w.pos.x, w.pos.y, dmg);
+    if (this.demon) this.demon.xp += dmg * 1.5; // Increased XP gain (was 0.5)
     // Death handling is done in the update loop via filter
+  }
+
+  damagePlayer(damage: number) {
+    const dmg = this.player.takeDamage(damage);
+    this.spawnDamageText(this.player.pos.x, this.player.pos.y, dmg);
+    if (this.demon) this.demon.xp += dmg * 2.0; // Increased XP gain (was 0.5)
   }
 
   damageBuilding(b: Building, damage: number) {
     const dmg = b.takeDamage(damage);
     this.spawnDamageText(b.pos.x, b.pos.y, dmg);
+    if (this.demon) this.demon.xp += dmg * 1.0; // Increased XP gain (was 0.2)
     if (b.hp <= 0) {
+      if (this.demon) this.demon.xp += 250; // Increased Destruction bonus (was 100)
       this.grid[b.gridY][b.gridX] = TileType.CLEARING;
       if (b.type === BuildingType.SACRED_ALTAR && b.owner) b.owner.isDead = true;
     }
+  }
+
+  levelUpDemon() {
+    if (!this.demon) return;
+    this.demon.level++;
+    this.demonScaleLevel++;
+    
+    // Carry over XP surplus
+    const surplus = this.demon.xp - (this.demon as any).nextLevelXp;
+    this.demon.xp = Math.max(0, surplus);
+    
+    (this.demon as any).nextLevelXp = Math.floor((this.demon as any).nextLevelXp * 1.75);
+    
+    // Exponential Power Growth
+    // HP grows at 1.2x per level
+    this.demon.maxHp = Math.floor(this.demon.maxHp * 1.2);
+    this.demon.hp = this.demon.maxHp;
+    
+    // Damage scales exponentially (1.6x per level)
+    this.demon.damage = Math.floor(this.demon.damage * 1.6);
+    
+    this.demon.attackSpeed *= 1.08;
+    this.demon.speed *= 1.02;
+
+    // Persist stats for respawn
+    this.persistedDemonStats = {
+      level: this.demon.level,
+      maxHp: this.demon.maxHp,
+      damage: this.demon.damage,
+      speed: this.demon.speed,
+      attackSpeed: this.demon.attackSpeed,
+      nextLevelXp: (this.demon as any).nextLevelXp
+    };
+    
+    this.addFlyingText(this.demon.pos.x, this.demon.pos.y - 40, `EVOLUTION COMPLETE: LVL ${this.demon.level}`, "#facc15");
+    this.addFlyingText(this.demon.pos.x, this.demon.pos.y - 70, "POWER SURGE!", "#ef4444");
   }
 
   handleInput(dt: number) {
@@ -938,14 +995,35 @@ export class GameEngine {
         const lumber = baseBuildings.filter(b => b.type.includes('LUMBER') || b.type.includes('LOGGING') || b.type.includes('CAMP') || b.type.includes('YARD') || b.type.includes('FACTORY') || b.type.includes('CORP') || b.type.includes('EMPIRE'));
         const mines = baseBuildings.filter(b => b.type.includes('MINE') || b.type.includes('EXCAVATION') || b.type.includes('TREASURY'));
         const entranceWall = this.getBuildingAt(base.entranceX, base.entranceY);
-
-        // Choose what to build next based on target counts
-        const possibleActions: { type: 'BUILD', bType: BuildingType }[] = [];
         
-        // PRIORITY: Entrance Wall
+        // Don't place new buildings or upgrade if demon is currently raiding the base
+        const demonNearBase = this.demon && this.demon.pos.distanceTo(new Vector2(base.centerX * TILE_SIZE, base.centerY * TILE_SIZE)) < 600;
+
+        if (!demonNearBase) {
+          // Choose what to build next based on target counts
+          const possibleActions: { type: 'BUILD', bType: BuildingType }[] = [];
+          
+        // PRIORITY 1: Entrance Wall (MANDATORY START)
         if (!entranceWall && w.wood >= BUILDINGS[BuildingType.WOOD_WALL].costWood) {
            this.placeBuilding(base.entranceX, base.entranceY, BuildingType.WOOD_WALL, w);
            return;
+        }
+
+        // PRIORITY 2: Basic Economy Setup (Start with 1 Lumber and 1 Mine)
+        if (lumber.length === 0 && w.wood >= BUILDINGS[BuildingType.LUMBER_SHACK].costWood) {
+           const empty = base.tiles.find(t => !this.getBuildingAt(t.x, t.y));
+           if (empty) {
+              this.placeBuilding(empty.x, empty.y, BuildingType.LUMBER_SHACK, w);
+              return;
+           }
+        }
+        
+        if (mines.length === 0 && w.wood >= BUILDINGS[BuildingType.GOLD_MINE].costWood) {
+           const empty = base.tiles.find(t => !this.getBuildingAt(t.x, t.y));
+           if (empty) {
+              this.placeBuilding(empty.x, empty.y, BuildingType.GOLD_MINE, w);
+              return;
+           }
         }
 
         if (lumber.length < w.aiTargets.lumber) possibleActions.push({ type: 'BUILD', bType: BuildingType.LUMBER_SHACK });
@@ -956,44 +1034,73 @@ export class GameEngine {
         // Shuffle possible actions
         possibleActions.sort(() => Math.random() - 0.5);
 
-        // Try random upgrades with high priority if we have money
+        // PRIORITY: Upgrades or Expand?
         const upgradable = baseBuildings.filter(b => {
            const stats = BUILDINGS[b.type];
            return stats.upgradesTo && stats.upgradesTo.length > 0;
         });
 
-        if (upgradable.length > 0 && Math.random() < 0.6) {
-           const b = upgradable[Math.floor(Math.random() * upgradable.length)];
-           const upgrades = BUILDINGS[b.type].upgradesTo!;
-           const nextType = upgrades[Math.floor(Math.random() * upgrades.length)];
-           const targetStats = BUILDINGS[nextType];
+        // 85% chance to upgrade if we have something upgradable, otherwise expand
+        if (upgradable.length > 0 && Math.random() < 0.85) {
+           // 1. Check for Entrance Wall upgrades (Critical defense)
+           let b = upgradable.find(u => u.gridX === base.entranceX && u.gridY === base.entranceY);
            
-           if (w.wood >= targetStats.costWood && w.gold >= (targetStats.costGold || 0)) {
-              w.wood -= targetStats.costWood;
-              w.gold -= targetStats.costGold || 0;
-              b.evolve(nextType);
-              this.addFlyingText(b.pos.x, b.pos.y - 30, "UPGRADED!", "#fbbf24");
+           // 2. Then Economy (Logging/Mines) - 50% priority over towers
+           if (!b && Math.random() < 0.5) {
+             const econKeywords = ['LUMBER', 'LOGGING', 'YARD', 'FACTORY', 'CORP', 'EMPIRE', 'MINE', 'EXCAVATION', 'TREASURY', 'BANK'];
+             const upgradableEcon = upgradable.filter(u => econKeywords.some(kw => u.type.includes(kw)));
+             if (upgradableEcon.length > 0) {
+               b = upgradableEcon[Math.floor(Math.random() * upgradableEcon.length)];
+             }
+           }
+
+           // 3. Then Towers
+           if (!b) {
+             const upgradableTowers = upgradable.filter(u => BUILDINGS[u.type].range !== undefined);
+             if (upgradableTowers.length > 0) {
+               b = upgradableTowers[Math.floor(Math.random() * upgradableTowers.length)];
+             }
+           }
+
+           // 4. Final Fallback
+           if (!b) b = upgradable[Math.floor(Math.random() * upgradable.length)];
+
+           if (b) {
+             const upgrades = BUILDINGS[b.type].upgradesTo!;
+             const nextType = upgrades[Math.floor(Math.random() * upgrades.length)];
+             const targetStats = BUILDINGS[nextType];
+             
+             if (w.wood >= targetStats.costWood && w.gold >= (targetStats.costGold || 0)) {
+                w.wood -= targetStats.costWood;
+                w.gold -= targetStats.costGold || 0;
+                b.evolve(nextType);
+                this.addFlyingText(b.pos.x, b.pos.y - 30, "SYSTEM UPGRADED", "#fbbf24");
+                return;
+             }
+           }
+        }
+
+          if (possibleActions.length > 0) {
+             const action = possibleActions[0];
+             const stats = BUILDINGS[action.bType];
+             if (w.wood >= stats.costWood) {
+                const empty = base.tiles.find(t => !this.getBuildingAt(t.x, t.y));
+                if (empty) {
+                   this.placeBuilding(empty.x, empty.y, action.bType, w);
+                   return;
+                }
+             }
+          }
+        }
+
+        // Repair check (Still allowed if demon is there, but skip building placement above)
+        const damaged = baseBuildings.find(b => b.hp < b.maxHp * 0.7);
+        if (damaged) {
+           const stats = BUILDINGS[damaged.type];
+           if (w.wood >= stats.costWood && w.gold >= (stats.costGold || 0)) {
+              this.repairBuilding(damaged);
               return;
            }
-        }
-
-        if (possibleActions.length > 0) {
-           const action = possibleActions[0];
-           const stats = BUILDINGS[action.bType];
-           if (w.wood >= stats.costWood) {
-              const empty = base.tiles.find(t => !this.getBuildingAt(t.x, t.y));
-              if (empty) {
-                 this.placeBuilding(empty.x, empty.y, action.bType, w);
-                 return;
-              }
-           }
-        }
-
-        // Repair check
-        const damaged = baseBuildings.find(b => b.hp < b.maxHp * 0.7);
-        if (damaged && w.wood >= 10) {
-           this.repairBuilding(damaged); // AI repairs for 10 wood
-           return;
         }
       }
     }
@@ -1003,33 +1110,35 @@ export class GameEngine {
     if (!this.demon) return;
     const now = performance.now();
     const midPos = new Vector2(MAP_SIZE / 2, MAP_SIZE / 2);
+    
+    // Decrement timers
+    if (this.demon.pathTimer > 0) this.demon.pathTimer -= dt;
+    if (this.demon.stuckDuration > 0) this.demon.stuckDuration -= dt; // Not used as much but good practice
 
     // 1. State Transitions
     if (this.demon.state === 'HUNT') {
-      if (this.demon.hp < this.demon.maxHp * 0.25) { // 25% threshold (between 20-30%)
+      const killerInstinct = this.player.hp < this.player.maxHp * 0.4; 
+      if (this.demon.hp < this.demon.maxHp * 0.20 && !killerInstinct) { 
         this.demon.state = 'RETREAT';
         this.demon.currentTarget = null;
+        this.addFlyingText(this.demon.pos.x, this.demon.pos.y - 40, "RECOVERING STRENGTH", "#60a5fa");
       }
     } else if (this.demon.state === 'RETREAT') {
       const altar = this.buildings.find(b => b.type === BuildingType.DEMON_ALTAR);
       if (altar && this.demon.pos.distanceTo(altar.pos) < 100) {
         // Healing at altar
         this.demon.hp += dt * 500; // Even faster heal
+        
+        // Return to Altar to Level Up
+        if (this.demon.xp >= (this.demon as any).nextLevelXp) {
+           this.levelUpDemon();
+        }
+
         if (this.demon.hp >= this.demon.maxHp) {
           this.demon.hp = this.demon.maxHp;
           this.demon.state = 'HUNT';
-          this.demon.level++; // Explicit level up
-          this.demonScaleLevel++;
-          
-          // Apply level-up buffs
-          this.demon.maxHp += 4000;
-          this.demon.hp = this.demon.maxHp;
-          this.demon.damage += 85;
-          this.demon.attackSpeed *= 1.08;
-          this.demon.speed *= 1.05;
-          
-          this.addFlyingText(this.demon.pos.x, this.demon.pos.y - 40, `LEVEL UP: ${this.demon.level}`, "#facc15");
-          this.addFlyingText(this.demon.pos.x, this.demon.pos.y - 70, "EVOLVED!", "#ef4444");
+          this.demon.xp += 150; // Bonus XP for successfully healing
+          this.addFlyingText(this.demon.pos.x, this.demon.pos.y - 40, "STRENGTH RESTORED", "#facc15");
         }
       }
     }
@@ -1093,8 +1202,8 @@ export class GameEngine {
         }
       }
     } else if (this.demon.state === 'HUNT') {
-      // Improved targeting with lock
-      if (!this.demon.currentTarget || (this.demon.currentTarget as any).isDead || now > this.demon.targetLockedTime) {
+      // Improved targeting: Focus until target dies or demon is forced away
+      if (!this.demon.currentTarget || (this.demon.currentTarget as any).isDead) {
         // Find potential targets: Players/Wardens in a cycle
         const allWardens = [this.player, ...this.aiWardens].filter(w => !w.isDead);
         
@@ -1113,9 +1222,10 @@ export class GameEngine {
           this.demon.currentTarget = targetWarden;
           this.demonTargetedWardens.push(targetWarden.id);
           
-          // Target lock for 15-20 seconds
-          this.demon.targetLockedTime = now + (15000 + Math.random() * 5000);
+          // Target lock for 60 seconds (relentless focus)
+          this.demon.targetLockedTime = now + 60000;
           this.demon.path = null; 
+          this.demon.pathTimer = 0; // Force immediate pathfinding to new target
         } else {
            const buildings = this.buildings.filter(b => b.owner && b.type !== BuildingType.DEMON_ALTAR);
            if (buildings.length > 0) {
@@ -1127,36 +1237,63 @@ export class GameEngine {
       if (this.demon.currentTarget) {
         const target = this.demon.currentTarget;
         const dir = new Vector2(target.pos.x - this.demon.pos.x, target.pos.y - this.demon.pos.y);
-        const dist = dir.length();
+        let dist = dir.length();
 
-        if (dist < 100) { // Increased combat range
-          // Combat Range
+        if (dist < 220) { // Increased combat range
           const attackCooldown = (this.demon.attackCooldown || 1000) / this.demon.attackSpeed;
-          if (now - this.demon.lastAttackTime > attackCooldown) {
-             // Second check for actual attack distance
-             if (dist < 75) {
-                if (target instanceof Warden) {
-                   this.damageAIWarden(target, this.demon.damage);
-                } else if (target instanceof Building) {
-                   this.damageBuilding(target, this.demon.damage);
-                } else {
-                   target.takeDamage(this.demon.damage);
+          
+          // Move closer directly
+          const moveDir = dir.normalize();
+          const speed = this.demon.speed * (dt * 60);
+          const nx = this.demon.pos.x + moveDir.x * speed;
+          const ny = this.demon.pos.y + moveDir.y * speed;
+          
+          if (this.canMoveTo(nx, ny, this.demon.radius, this.demon)) {
+            this.demon.pos.x = nx;
+            this.demon.pos.y = ny;
+            // Update distance after movement
+            dist = new Vector2(target.pos.x - this.demon.pos.x, target.pos.y - this.demon.pos.y).length();
+          } else {
+            // Blocked - try to find ANY building to smash in its path
+            // Check multiple points around the intended next position
+            const checkOffsets = [
+                {x: 0, y: 0},
+                {x: moveDir.x * 20, y: moveDir.y * 20},
+                {x: moveDir.x * 32, y: moveDir.y * 32},
+                {x: moveDir.y * 15, y: -moveDir.x * 15}, // Perpendicular
+                {x: -moveDir.y * 15, y: moveDir.x * 15}
+            ];
+
+            let foundBlocker = false;
+            for (const offset of checkOffsets) {
+                const { gx, gy } = worldToGrid(nx + offset.x, ny + offset.y);
+                const b = this.getBuildingAt(gx, gy);
+                if (b && (b !== target || dist < this.demon.attackRange + 20)) {
+                    const smashCooldown = 800 / this.demon.attackSpeed;
+                    if (now - this.demon.lastAttackTime > smashCooldown) {
+                        this.damageBuilding(b, this.demon.damage);
+                        this.demon.lastAttackTime = now;
+                        this.cameraShake = 3;
+                        this.demon.path = null;
+                    }
+                    foundBlocker = true;
+                    break;
                 }
-                this.demon.lastAttackTime = now;
-                this.cameraShake = 5;
-                this.demon.path = null; 
-             } else {
-                // If in combat range but not attack range, push closer directly
-                const moveDir = dir.normalize();
-                const speed = this.demon.speed * (dt * 60);
-                const nx = this.demon.pos.x + moveDir.x * speed;
-                const ny = this.demon.pos.y + moveDir.y * speed;
-                
-                if (this.canMoveTo(nx, ny, this.demon.radius, this.demon)) {
-                   this.demon.pos.x = nx;
-                   this.demon.pos.y = ny;
-                }
-             }
+            }
+          }
+
+          // Attack if close enough
+          if (dist < this.demon.attackRange && now - this.demon.lastAttackTime > attackCooldown) {
+            if (target instanceof Warden) {
+              this.damageAIWarden(target, this.demon.damage);
+            } else if (target instanceof Building) {
+              this.damageBuilding(target, this.demon.damage);
+            } else {
+              this.damagePlayer(this.demon.damage);
+            }
+            this.demon.lastAttackTime = now;
+            this.cameraShake = 2;
+            this.demon.path = null; 
           }
         } else {
           // Movement - Use Pathfinding
@@ -1190,31 +1327,46 @@ export class GameEngine {
              } else {
                 // Blocked - Smash Obstacle
                 this.demon.stuckDuration += dt;
-                const { gx, gy } = worldToGrid(nx, ny);
                 
-                // If it's a building, damage it
+                // Advanced smash detection when following path
+                const { gx, gy } = worldToGrid(nx + stepDir.x * 20, ny + stepDir.y * 20);
                 const b = this.getBuildingAt(gx, gy);
-                if (b && b !== this.demon.currentTarget) {
+                if (b && b !== target) {
                    const smashCooldown = 800 / this.demon.attackSpeed;
                    if (now - this.demon.lastAttackTime > smashCooldown) {
-                      this.damageBuilding(b, this.demon.damage * 0.8);
+                      this.damageBuilding(b, this.demon.damage);
                       this.demon.lastAttackTime = now;
                    }
                 }
                 
-                // Repath immediately if stuck or after smashing
                 if (this.demon.stuckDuration > 0.6) {
                    this.demon.pathTimer = 0;
                    this.demon.stuckDuration = 0;
                 }
              }
           } else {
-             // Fallback to direct movement if no path
+             // Fallback to direct movement if no path found (e.g. fully walled in)
+             // This lets it run up to the wall and start smashing
              const directDir = dir.normalize();
              const speed = this.demon.speed * (dt * 60);
-             if (this.canMoveTo(this.demon.pos.x + directDir.x * speed, this.demon.pos.y + directDir.y * speed, this.demon.radius, this.demon)) {
-                this.demon.pos.x += directDir.x * speed;
-                this.demon.pos.y += directDir.y * speed;
+             const nx = this.demon.pos.x + directDir.x * speed;
+             const ny = this.demon.pos.y + directDir.y * speed;
+             
+             if (this.canMoveTo(nx, ny, this.demon.radius, this.demon)) {
+                this.demon.pos.x = nx;
+                this.demon.pos.y = ny;
+             } else {
+                // Blocked - Smash whatever is in way of target
+                const { gx, gy } = worldToGrid(nx + directDir.x * 20, ny + directDir.y * 20);
+                const b = this.getBuildingAt(gx, gy);
+                if (b && b !== target) {
+                    const smashCooldown = 800 / this.demon.attackSpeed;
+                    if (now - this.demon.lastAttackTime > smashCooldown) {
+                        this.damageBuilding(b, this.demon.damage);
+                        this.demon.lastAttackTime = now;
+                    }
+                }
+                this.demon.pathTimer = 0; // Keep trying to find path
              }
           }
         }
@@ -1312,7 +1464,16 @@ export class GameEngine {
     const stats = BUILDINGS[type];
     if (owner.wood >= stats.costWood && owner.gold >= (stats.costGold || 0)) {
       if (!this.getBuildingAt(gx, gy)) {
-        const b = new Building(gx, gy, type, owner);
+        // Focus scaling on Walls and Barriers to keep pace with Demon Evolution
+        const level = (this.demon?.level || 1);
+        const isDefensive = type.toLowerCase().includes('wall') || type.toLowerCase().includes('barrier') || type.toLowerCase().includes('bastion');
+        
+        // Walls scale faster (1.45x per level) than towers/economy (1.32x per level)
+        const scaleFactor = Math.pow(isDefensive ? 1.45 : 1.32, level - 1);
+        const scaledHp = Math.floor(stats.maxHp * scaleFactor);
+        
+        const b = new Building(gx, gy, type, owner, scaledHp);
+        (b as any).scaleFactor = scaleFactor; // Store for upgrades
         this.buildings.push(b);
         owner.wood -= stats.costWood;
         owner.gold -= stats.costGold;
@@ -1323,11 +1484,20 @@ export class GameEngine {
     return false;
   }
 
-  repairBuilding(b: Building) {
-    if (this.player.wood >= 10) {
-      this.player.wood -= 10;
+  repairBuilding(b: Building): boolean {
+    const stats = BUILDINGS[b.type];
+    const woodCost = stats.costWood;
+    const goldCost = stats.costGold || 0;
+    const owner = b.owner;
+
+    if (owner && owner.wood >= woodCost && owner.gold >= goldCost) {
+      owner.wood -= woodCost;
+      owner.gold -= goldCost;
       b.hp = b.maxHp;
+      this.addFlyingText(b.pos.x, b.pos.y - 20, "REPAIRED", "#10b981");
+      return true;
     }
+    return false;
   }
 
   sellBuilding(b: Building) {
@@ -1565,19 +1735,74 @@ export class GameEngine {
     });
 
     if (this.demon && !this.demon.isDead) {
-      ctx.fillStyle = '#ef4444';
-      ctx.shadowBlur = 20;
-      ctx.shadowColor = '#ef4444';
-      ctx.beginPath();
-      ctx.arc(this.demon.pos.x, this.demon.pos.y, this.demon.radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      const level = this.demon.level;
+      const pulse = Math.sin(Date.now() / 200) * 0.2 + 1;
+      
+      // Dynamic Visuals based on Level
+      let color = '#ef4444';
+      let shadowColor = '#ef4444';
+      let shadowBlur = 20;
+
+      if (level >= 3) {
+        color = '#dc2626'; // Deeper red
+        shadowBlur = 30 * pulse;
+      }
+      if (level >= 6) {
+        color = '#7f1d1d'; // Dark blood red
+        shadowColor = '#f97316'; // Orange fire glow
+        shadowBlur = 45 * pulse;
+      }
+
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.shadowBlur = shadowBlur;
+      ctx.shadowColor = shadowColor;
+      
+      if (level >= 5) {
+        // Star-like jagged shape for powerful demons
+        const spikes = 8 + level;
+        const outerRadius = this.demon.radius * (1 + 0.1 * pulse);
+        const innerRadius = this.demon.radius * 0.7;
+        ctx.beginPath();
+        for (let i = 0; i < spikes * 2; i++) {
+          const r = i % 2 === 0 ? outerRadius : innerRadius;
+          const angle = (i * Math.PI) / spikes;
+          ctx.lineTo(this.demon.pos.x + Math.cos(angle) * r, this.demon.pos.y + Math.sin(angle) * r);
+        }
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(this.demon.pos.x, this.demon.pos.y, this.demon.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
       
       // Demon HP
       ctx.fillStyle = '#111';
       ctx.fillRect(this.demon.pos.x - 50, this.demon.pos.y - 65, 100, 8);
       ctx.fillStyle = '#dc2626';
       ctx.fillRect(this.demon.pos.x - 50, this.demon.pos.y - 65, 100 * (this.demon.hp / this.demon.maxHp), 8);
+
+      // Level Indicator
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 14px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`LVL ${level}`, this.demon.pos.x, this.demon.pos.y + 5);
+
+      // Target Status Debug text (Only for internal builds/testing)
+      if (this.demon.currentTarget) {
+          ctx.fillStyle = 'white';
+          ctx.font = 'bold 12px Arial';
+          ctx.textAlign = 'center';
+          const target = this.demon.currentTarget;
+          const dist = new Vector2(target.pos.x - this.demon.pos.x, target.pos.y - this.demon.pos.y).length();
+          const targetName = (target as any).isAI ? "AI Warden" : (target instanceof Building ? "Building" : "Player");
+          ctx.fillText(`Target: ${targetName}`, this.demon.pos.x, this.demon.pos.y - 75);
+          ctx.fillText(`State: ${this.demon.state}`, this.demon.pos.x, this.demon.pos.y - 88);
+          ctx.fillText(`Dist: ${dist.toFixed(0)}`, this.demon.pos.x, this.demon.pos.y - 101);
+          if (this.demon.path) ctx.fillText(`Path: ${this.demon.path.length}`, this.demon.pos.x, this.demon.pos.y - 114);
+      }
     }
 
     this.lesserDemons.forEach(ld => {
