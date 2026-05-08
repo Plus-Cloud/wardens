@@ -42,7 +42,7 @@ export class Warden extends Entity {
   fkMilestonesReached: Set<number> = new Set();
   strategy: AIStrategy = 'Balanced';
   upgrades: { offense: number, agility: number, defense: number, economy: number } = { offense: 0, agility: 0, defense: 0, economy: 0 };
-  aiTargets: { towers: number, walls: number, lumber: number, mines: number } = { towers: 5, walls: 2, lumber: 2, mines: 1 };
+  aiTargets: { towers: number, walls: number, lumber: number, mines: number } = { towers: 8, walls: 4, lumber: 6, mines: 4 };
   unlockedBuildings: Set<BuildingType> = new Set([
     BuildingType.WOOD_WALL, 
     BuildingType.GUARD_TOWER, 
@@ -70,23 +70,29 @@ export class Building extends Entity {
   accumulatedGold: number = 0;
   textTimer: number = 0;
 
-  constructor(gx: number, gy: number, public type: BuildingType, public owner: Warden | null = null) {
+  constructor(gx: number, gy: number, public type: BuildingType, public owner: Warden | null = null, overrideMaxHp?: number) {
     super(gx * TILE_SIZE + TILE_SIZE / 2, gy * TILE_SIZE + TILE_SIZE / 2);
     const stats = BUILDINGS[type];
     this.upgrades = { defense: 0, offense: 0, economy: 0 };
-    this.hp = stats.hp;
-    this.maxHp = stats.maxHp;
+    this.maxHp = overrideMaxHp || stats.maxHp;
+    this.hp = this.maxHp;
     this.gridX = gx;
     this.gridY = gy;
   }
 
-  evolve(newType: BuildingType) {
+  evolve(newType: BuildingType, newScaleFactor?: number) {
     const newStats = BUILDINGS[newType];
     const hpRatio = this.hp / this.maxHp;
     
+    // Update scale factor if provided, otherwise keep existing
+    if (newScaleFactor !== undefined) {
+      (this as any).scaleFactor = newScaleFactor;
+    }
+    const scaleFactor = (this as any).scaleFactor || 1;
+    
     this.type = newType;
-    this.maxHp = newStats.maxHp;
-    this.hp = newStats.maxHp * hpRatio;
+    this.maxHp = Math.floor(newStats.maxHp * scaleFactor);
+    this.hp = this.maxHp * hpRatio;
   }
 
   getDynamicName(): string {
@@ -96,13 +102,14 @@ export class Building extends Entity {
 
 export class Demon extends Entity {
   level: number = 1;
-  speed: number = 2.5;
-  damage: number = 20;
-  attackSpeed: number = 1.0;
+  speed: number = 5.5; 
+  damage: number = 6; // Increased starting damage
+  attackSpeed: number = 4.0;
   lastAttackTime: number = 0;
   lastRegenTime: number = 0;
   xp: number = 0;
-  attackRange: number = 60;
+  nextLevelXp: number = 300; // Lower starting XP for faster early levels
+  attackRange: number = 90;
   attackCooldown: number = 1000;
   state: 'HUNT' | 'RETREAT' | 'REGEN' = 'HUNT';
   currentTarget: Entity | null = null;
@@ -117,11 +124,9 @@ export class Demon extends Entity {
 
   constructor(x: number, y: number) {
     super(x, y);
-    this.radius = 18; // Match Warden size
-    this.hp = 6000;
-    this.maxHp = 6000;
-    this.damage = 150;
-    this.attackSpeed = 1.25;
+    this.radius = 24; // Bigger
+    this.hp = 600; 
+    this.maxHp = 600;
   }
 }
 
