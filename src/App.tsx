@@ -429,8 +429,16 @@ export default function App() {
     if (selectedTile && engineRef.current) {
       const building = engineRef.current.getBuildingAt(selectedTile.x, selectedTile.y);
       if (building) {
-        engineRef.current.repairBuilding(building);
-        setResources(prev => ({...prev}));
+        const success = engineRef.current.repairBuilding(building);
+        if (success) {
+           setResources({
+             wood: Math.floor(engineRef.current.player.wood),
+             gold: Math.floor(engineRef.current.player.gold),
+             hp: Math.floor(engineRef.current.player.hp),
+             isLumbering: engineRef.current.player.isLumbering,
+             forbiddenKnowledge: engineRef.current.player.forbiddenKnowledge
+           });
+        }
       }
     }
   };
@@ -911,10 +919,22 @@ export default function App() {
                       <button 
                         disabled={!selectedBuildingAtTile || selectedBuildingAtTile.hp >= selectedBuildingAtTile.maxHp}
                         onClick={repair}
-                        className="flex-1 bg-[#1a140f] border-2 sm:border-4 border-[#3d2b1f] text-[#8b5e3c] hover:text-emerald-500 hover:border-emerald-900/50 flex flex-row sm:flex-col items-center justify-center group disabled:opacity-30 disabled:grayscale transition-all gap-2"
+                        className="flex-1 bg-[#1a140f] border-2 sm:border-4 border-[#3d2b1f] text-[#8b5e3c] hover:text-emerald-500 hover:border-emerald-900/50 flex flex-row sm:flex-col items-center justify-center group disabled:opacity-30 disabled:grayscale transition-all gap-1 sm:gap-2 px-1"
                       >
-                        <Wrench className="w-3 h-3 sm:w-6 sm:h-6 sm:mb-2 group-hover:rotate-45 transition-transform" />
-                        <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-center">Repair</span>
+                        <Wrench className="w-3 h-3 sm:w-6 sm:h-6 group-hover:rotate-45 transition-transform shrink-0" />
+                        <div className="flex flex-col items-center leading-none">
+                          <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-center">Repair</span>
+                          <div className="flex gap-1 mt-0.5 sm:mt-1">
+                             <div className="flex items-center gap-0.5 text-[6px] sm:text-[9px] font-mono text-emerald-400">
+                               <Axe className="w-1.5 h-1.5 sm:w-2.5 sm:h-2.5" />{selectedBuildingStats?.costWood}
+                             </div>
+                             {selectedBuildingStats?.costGold ? (
+                               <div className="flex items-center gap-0.5 text-[6px] sm:text-[9px] font-mono text-amber-400">
+                                 <Coins className="w-1.5 h-1.5 sm:w-2.5 sm:h-2.5" />{selectedBuildingStats.costGold}
+                               </div>
+                             ) : null}
+                          </div>
+                        </div>
                       </button>
                       <button 
                         disabled={!selectedBuildingAtTile}
